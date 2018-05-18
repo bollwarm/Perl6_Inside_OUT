@@ -1,0 +1,79 @@
+
+		<p>You might already know that it is possible to divide by zero in Perl 6 🙂</p>
+<p>Well, seriously speaking, you can only do that until you don’t want to announce it to the others. So, the division itself is not a problem:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1; my $y = <strong>$x / 0</strong>; say &quot;Done&quot;&#39;
+Done</pre>
+<p>It becomes a problem when the result of the division is used somewhere, for example, when you print it:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1; my $y = $x / 0; <strong>say $y</strong>&#39;
+Attempt to divide 1 by zero using div
+  in block  at -e line 1</pre>
+<p>This type of failure is called <em>soft failure</em>. Today, we will look at the places in Rakudo, where a divide-by-zero error can be triggered.</p>
+<p>Did you notice that the error message above says <em>divide by zero using div</em>. Does it mean that other methods of division by zero exist too? Let’s figure it out.</p>
+<p>The error message is generated within an exception (src/core/Exception.pm) of the <tt>X::Numeric::DivideByZero</tt> type:</p>
+<pre>my class X::Numeric::DivideByZero is Exception {
+    has $.using;
+    has $.details;
+    has $.numerator;
+    method message() {
+        <strong>&quot;Attempt to divide{$.numerator ?? &quot; $.numerator&quot; !! &#39;&#39;} by zero&quot;
+          ~ ( $.using ?? &quot; using $.using&quot; !! &#39;&#39; )
+          ~ ( &quot; $_&quot; with $.details );</strong>
+    }
+}</pre>
+<p>As you see, the final message may vary.</p>
+<p>The most obvious case when the exception can happen is division. For example, integer division (src/core/Int.pm):</p>
+<pre>multi sub infix:&lt;div&gt;(Int:D \a, Int:D \b) {
+    b
+      ?? nqp::div_I(nqp::decont(a), nqp::decont(b), Int)
+      !! Failure.new(<strong>X::Numeric::DivideByZero.new</strong>(
+            :using&lt;div&gt;, :numerator(a))
+         )
+}</pre>
+<p>You see, the <tt>:using</tt> attribute is set to <tt>div</tt>, which indicates that the error happened inside the <tt>div</tt> routine.</p>
+<p>Just out of curiosity, what if you skip the check if <tt>b</tt> is zero and pass the operands to NQP?</p>
+<pre>multi sub infix:&lt;div&gt;(Int:D \a, Int:D \b) {
+    <strong>nqp::div_I(nqp::decont(a), nqp::decont(b), Int)
+</strong>
+#    b
+#      ?? nqp::div_I(nqp::decont(a), nqp::decont(b), Int)
+#      !! Failure.new(X::Numeric::DivideByZero.new(
+#            :using&lt;div&gt;, :numerator(a))
+#         )
+}</pre>
+<p>You’ll get a lower-level exception:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1; my $y = $x / 0; say $y&#39;
+Floating point exception: 8</pre>
+<p>OK, going back to original sources. Another example is the modulo operator, where the error message is a bit different:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1; my $y = $x % 0; say $y&#39;
+Attempt to divide 1 by zero <strong>using %</strong>
+  in block &lt;unit&gt; at -e line 1</pre>
+<p>This time, the division was <tt>using %</tt>, which is easily seen in the code:</p>
+<pre>multi sub infix:&lt;%&gt;(Int:D \a, Int:D \b --&gt; Int:D) {
+    . . .
+    Failure.new(
+        X::Numeric::DivideByZero.new(<strong>:using&lt;%&gt;</strong>, :numerator(a))
+    )
+    . . .</pre>
+<p>There are a few other places in the code that generate the <tt>X::Numeric::DivideByZero</tt> exception; those (for example, the divisibility operator <tt>%%</tt>) are similar to what we already covered.</p>
+<h2>Addendum</h2>
+<p>What should worry you is why did the error message mention <tt>div</tt> if we were dividing numbers using <tt>/</tt>. Maybe it was a different place, and the error message was generated not inside <tt>infix::&lt;div&gt;</tt>? No, that’s correct (it is easy to prove by changing the error message in the source code).</p>
+<p>Use of the <tt>/</tt> character does not necessarily mean a division. A Rat number can be created; for example:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1/0; say $x.WHAT&#39;
+(Rat)</pre>
+<p>The real call tree for our example is the following:</p>
+<ul>
+<li><tt>Rat::infix:&lt;/&gt;(Int, Int)</tt>
+<ul>
+<li><span style="font-family:monospace;">DIVIDE_NUMBERS(Int, Int)</span>
+<ul>
+<li><tt>Int::infix&lt;div&gt;(Int, Int)</tt></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>So, it starts with an attempt to create a Rat value and goes deeper to the <tt>div</tt> infix. The <tt>DIVIDE_NUMBERS</tt> function is a part of the Rat constructor, which we already mentioned yesterday, so it is another stimulus to look at it in detail.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-414" href="https://perl6.online/2018/01/26/37-dividing-by-zero-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-414" href="https://perl6.online/2018/01/26/37-dividing-by-zero-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-414" href="https://perl6.online/2018/01/26/37-dividing-by-zero-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-414-5afe9d7e1fda4" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=414&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-414-5afe9d7e1fda4" id="like-post-wrapper-139853928-414-5afe9d7e1fda4"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

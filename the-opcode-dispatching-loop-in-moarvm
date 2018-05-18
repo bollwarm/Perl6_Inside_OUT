@@ -1,0 +1,176 @@
+
+		<p>Let me make some correction work following the <a href="https://perl6.online/2018/01/19/30-how-i-was-optimising-moarvm/">previous post</a>. I felt that something escaped from my view because changing the code did not bring any advances in speed.</p>
+<p>Jonathan Worthington left a brilliant comment saying that I was trying to optimise the JIT compiler. Bang! Indeed, I thought that JIT should have had some influence, but I did not notice how I fell to the src/jit directory of MoarVM.</p>
+<p>Today, we are looking into a different place where the opcodes are handled. I hope you will enjoy it as much as I did.</p>
+<h2>Computed goto</h2>
+<p>Before we continue, let us take a look at the so-called <em>computed goto</em> mechanism available in some of the C compilers, for example, <a href="https://gcc.gnu.org/onlinedocs/gcc/Labels-as-Values.html">in GCC</a>.</p>
+<p>The following program illustrates the simplest virtual machine. First, it generates a random program and stores it in the <tt>prog</tt> array. Then, the program is being read opcode by opcode, and the <tt>switch</tt> statement chooses the path that is executed in response to the opcode.</p>
+<pre>#include &lt;stdio.h&gt;
+#include &lt;time.h&gt;
+#include &lt;stdlib.h&gt;
+
+const int size = 10;
+
+int prog[size];
+
+void gen_prog() {
+    for (int c = 0; c != size; c++) {
+        prog[c] = rand() % 3;
+    }
+}
+
+void exec_prog() {
+    for (int c = 0; c != size; c++) {
+        switch(prog[c]) {
+            case 0:
+                printf(&quot;0\n&quot;);
+                break;
+            case 1:
+                printf(&quot;1\n&quot;);
+                break;
+            case 2:
+                printf(&quot;2\n&quot;);
+                break;
+        }
+    }
+}
+
+int main() {
+    srand(time(NULL));
+    
+    gen_prog();
+    exec_prog();
+}</pre>
+<p>There are three different opcodes and thus three different actions that prints 0, 1, or 2. The program contains ten random commands.</p>
+<p>This first program is not optimised (we do not take into account the optimisation that a compiler can do for us), and it should check all the branches before it finds the one for the given opcode.</p>
+<p>Our next step: move the actions to separate functions:</p>
+<div>
+<pre>void op0() {
+    printf(&quot;0\n&quot;);
+}
+
+void op1() {
+    printf(&quot;1\n&quot;);
+}
+
+void op2() {
+    printf(&quot;2\n&quot;);
+}</pre>
+<p>Having that done, call the functions in <tt>switch</tt>/<tt>case</tt>:</p>
+<pre>void exec_prog() {
+    for (int c = 0; c != 10; c++) {
+        switch(prog[c]) {
+            case 0:
+                op0();
+                break;
+            case 1:
+                op1();
+                break;
+            case 2:
+                op2();
+                break;
+        }
+    }
+}</pre>
+<p>At this point, the dispatching code looks uniform and can be replaced with an array containing pointers to the <tt>opX</tt> functions:</p>
+<pre>void exec_prog() {
+    void (*ops[])() = {op0, op1, op2};
+ 
+    for (int c = 0; c != 10; c++) { 
+        ops[prog[c]]();
+    }
+}</pre>
+<p>Now, it is really simple and transparent. Opcodes are indices of the array and directly lead to the desired function. Now, we can introduce computed goto. Here is an updated <tt>exec_prog</tt> function:</p>
+<pre>void exec_prog() {
+    prog[size] = 3;
+ 
+    void* ops[] = {&amp;&amp;op0, &amp;&amp;op1, &amp;&amp;op2, &amp;&amp;eop};
+
+    int c = 0;
+    goto *ops[prog[c++]];
+    op0:
+        printf(&quot;0\n&quot;);
+        goto *ops[prog[c++]];
+    op1:
+        printf(&quot;1\n&quot;);
+        goto *ops[prog[c++]];
+    op2:
+        printf(&quot;2\n&quot;);
+        goto *ops[prog[c++]];
+    eop:
+        NULL;
+}</pre>
+<p>What’s new here? First of all, there is no explicit loop. Also, all the functions are inlined as it was in the first program. The <tt>ops</tt> array contains now the addresses of the labels. They can be used as arguments of <tt>goto</tt> to jump directly to the place you need. From one hand, this is similar to function calls, from another, the code looks like the <tt>switch</tt>/<tt>case</tt> sequence and has no function calls.</p>
+<p>The <tt>switch</tt> statement is also gone. On each step, the command pointer is incremented and thus the program jumps to different labels until the program is completely consumed. We intentionally added an end-of-program opcode (value = 3) so that it can stop the command loop.</p>
+<h2>Back to MoarVM</h2>
+<p>It’s time to return to the sources of MoarVM. In src/core/interp.c, you can find our friend, the <tt>switch</tt> statement that dispatches control:</p>
+<pre>DISPATCH(NEXT_OP) {
+    OP(no_op):
+        goto NEXT;
+    OP(const_i8):
+    OP(const_i16):
+    OP(const_i32):
+        MVM_exception_throw_adhoc(tc, &quot;const_iX NYI&quot;);
+    OP(const_i64):
+        GET_REG(cur_op, 0).i64 = MVM_BC_get_I64(cur_op, 2);
+        cur_op += 10;
+        goto NEXT;
+    OP(const_n32):
+        MVM_exception_throw_adhoc(tc, &quot;const_n32 NYI&quot;);</pre>
+<p>And it continues for other hundreds of opcodes. The capitalised names are macros depending on the <tt>MVM_CGOTO</tt> flag:</p>
+<pre>#define NEXT_OP (op = *(MVMuint16 *)(cur_op), cur_op += 2, op)
+
+<strong>#if MVM_CGOTO</strong>
+#define DISPATCH(op)
+#define OP(name) OP_ ## name
+#define NEXT *LABELS[NEXT_OP]
+<strong>#else</strong>
+#define DISPATCH(op) switch (op)
+#define OP(name) case MVM_OP_ ## name
+#define NEXT runloop
+<strong>#endif</strong></pre>
+<p>If the compiler is able to do computed gotos, these macros generate the following code:</p>
+<pre>{
+    OP_no_op:
+        goto *LABELS[(op = *(MVMuint16 *)(cur_op), cur_op += 2, op)];
+    OP_const_i8:
+    OP_const_i16:
+    OP_const_i32:
+        MVM_exception_throw_adhoc(tc, &quot;const_iX NYI&quot;);
+        cur_op += 10;
+        goto *LABELS[(op = *(MVMuint16 *)(cur_op), cur_op += 2, op)];
+    OP_const_n32:
+        MVM_exception_throw_adhoc(tc, &quot;const_n32 NYI&quot;);</pre>
+<p>For this case, the LABELS are loaded from src/core/oplabels.h:</p>
+<pre>static const void * const LABELS[] = {
+    &amp;&amp;OP_no_op,
+    &amp;&amp;OP_const_i8,
+    &amp;&amp;OP_const_i16,
+    &amp;&amp;OP_const_i32,
+    &amp;&amp;OP_const_i64,
+    &amp;&amp;OP_const_n32,
+    &amp;&amp;OP_const_n64,
+    &amp;&amp;OP_const_s,</pre>
+<p>When the compiler does not support it, macros help to generate a traditional <tt>switch</tt>/<tt>case</tt> sequence:</p>
+<pre>runloop: {
+    . . .
+ 
+    switch ((op = *(MVMuint16 *)(cur_op), cur_op += 2, op)) {
+        case MVM_OP_no_op:
+            goto runloop;
+        case MVM_OP_const_i8:
+        case MVM_OP_const_i16:
+        case MVM_OP_onst_i32:
+            MVM_exception_throw_adhoc(tc, &quot;const_iX NYI&quot;);
+        case MVM_OP_const_i64:
+            GET_REG(cur_op, 0).i64 = MVM_BC_get_I64(cur_op, 2);
+            cur_op += 10;
+            goto runloop;
+        case MVM_OP_const_n32:
+            MVM_exception_throw_adhoc(tc, &quot;const_n32 NYI&quot;);</pre>
+<p>And that’s all for today. It was a lot of C code but I hope it was quite useful to lurk into such deep level of the Perl 6 compiler system.</p>
+</div>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-365" href="https://perl6.online/2018/01/20/the-opcode-dispatching-loop-in-moarvm/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-365" href="https://perl6.online/2018/01/20/the-opcode-dispatching-loop-in-moarvm/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-365" href="https://perl6.online/2018/01/20/the-opcode-dispatching-loop-in-moarvm/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-365-5afe9d8906201" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=365&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-365-5afe9d8906201" id="like-post-wrapper-139853928-365-5afe9d8906201"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

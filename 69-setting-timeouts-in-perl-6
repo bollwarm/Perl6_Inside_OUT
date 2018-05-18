@@ -1,0 +1,45 @@
+
+		<p>In Perl 5, I used to set timeouts using signals (or, at least, that was an easy and predictable way). In Perl 6, you can use promises. Let us see how to do that.</p>
+<p>To imitate a long-running task, create an infinite loop that prints its state now and then. Here it is:</p>
+<pre>for 1 .. * {
+    .say if $_ %% 100_000;
+}</pre>
+<p>As soon as the loop gets control, it will never quit. Our task is to stop the program in a couple of seconds, so the timer should be set before the loop:</p>
+<pre>Promise.in(2).then({
+    exit;
+});
+
+for 1 .. * {
+    .say if $_ %% 100_000;
+}</pre>
+<p>Here, the <tt>Promise.in</tt> method creates a promise that is automatically kept after the given number of seconds. On top of that promise, using <tt>then</tt>, we add another promise, whose code will be run after the timeout. The only statement in the body here is <tt>exit</tt> that stops the main program.</p>
+<p>Run the program to see how it works:</p>
+<pre>$ time perl6 timeout.pl
+100000
+200000
+300000
+. . .
+3700000
+3800000
+3900000
+
+real 0m2.196s
+user 0m2.120s
+sys 0m0.068s</pre>
+<p>The program counts up to about four millions on my computer and quits in two seconds. That is exactly the behaviour we needed.</p>
+<p>For comparison, here is the program in Perl 5:</p>
+<pre>use v5.10;
+
+alarm 2;
+$SIG{ALRM} = sub {
+    exit;
+};
+
+for (my $c = 1; ; $c++) {
+    say $c unless $c % 1_000_000;
+}</pre>
+<p>(It manages to count up to 40 million, but that’s another story.)</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-690" href="https://perl6.online/2018/03/03/69-setting-timeouts-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-690" href="https://perl6.online/2018/03/03/69-setting-timeouts-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-690" href="https://perl6.online/2018/03/03/69-setting-timeouts-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-690-5afe9d475734e" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=690&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-690-5afe9d475734e" id="like-post-wrapper-139853928-690-5afe9d475734e"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,82 @@
+
+		<p>Today, a small excursus into the syntax. Did you know that roles in Perl 6 can have a parameter that makes them similar to generic templates in, say, C++? Here’s a small example:</p>
+<pre>role R {
+    has $.value;
+ 
+    method add($b) {
+        $.value + $b.value
+    }
+
+    method div($b) {
+        $.value / $b.value
+    }
+}</pre>
+<p>The <tt>R</tt> role defines an interface that has a value and two methods for arithmetical operations: <tt>add</tt> and <tt>div</tt>.</p>
+<p>Now, create a class using the role, initialise two variables and use the methods to get the results:</p>
+<pre>class C does R {}
+
+my C $x = C.new(value =&gt; 10);
+my C $y = C.new(value =&gt; 3);
+
+say $x.add($y); <em># 13</em>
+say $x.div($y); <em># <span class="s1">3.333333</span></em></pre>
+<p>Although the values here were integers, Perl did a good job and returned a rational number for the division. You can easily see it by calling the <tt>WHAT</tt> method:</p>
+<pre>say $x.add($y).WHAT; <em># (Int)</em>
+say $x.div($y).WHAT; <em># (Rat)</em></pre>
+<p>If you have two integers, the result of their division is always of the Rat type. The actual operator, which is triggered in this case, is the one from src/core/Rat.pm:</p>
+<pre>multi sub infix:&lt;/&gt;(Int \a, Int \b) {
+    DIVIDE_NUMBERS a, b, a, b
+}</pre>
+<p>The <tt>DIVIDE_NUMBERS</tt> sub returns a <tt>Rat</tt> value.</p>
+<h2>Defining a role</h2>
+<p>How to modify the <tt>C</tt> class so that it performs integer division? One of the options is to use a parameterised role:</p>
+<pre>role R<strong>[::T]</strong> {
+    has <strong>T</strong> $.value;
+    
+    method add($b) {
+        <strong>T</strong>.new($.value + $b.value)
+    }
+
+    method div($b) {   
+        <strong>T</strong>.new($.value / $b.value)
+    }
+}</pre>
+<p>The parameter in square brackets after the role name restricts both the type of the <tt>$.value</tt> attribute and the return type of the methods, which return a new object of the type <tt>T</tt>. Here, in the template of the role, <tt>T</tt> is just a name, which should later be specified when the role is used.</p>
+<h2>Using the role</h2>
+<p>So, let’s make it integer:</p>
+<pre>class N does R<strong>[Int]</strong> {}</pre>
+<p>Now the parts of the role that employ the <tt>T</tt> name replace it with Int, so the class is equivalent to the following definition:</p>
+<pre>class C {
+    has <strong>Int</strong> $.value;
+    
+    method add($b) {
+        <strong>Int</strong>.new($.value + $b.value)
+    }
+
+    method div($b) {   
+        <strong>Int</strong>.new($.value / $b.value)
+    }
+}</pre>
+<p>The new class operates with integers, and the result of the division is an exact 3:</p>
+<pre>class N does R[<strong>Int</strong>] {}
+
+my N $i = N.new(value =&gt; 10);
+my N $j = N.new(value =&gt; 3);
+
+say $i.add($j); <em># 13</em>
+say $i.div($j); <em># 3</em></pre>
+<p>It is also possible to force floating-point values by instructing the role accordingly:</p>
+<pre>class F does R[<strong>Num</strong>] {}
+
+my F $x = F.new(value =&gt; 10e0);
+my F $y = F.new(value =&gt; 3e0);
+
+say $x.add($y); <em># 13</em>
+say $x.div($y); <em># <span class="s1">3.33333333333333</span></em></pre>
+<p>Notice that both values, including 13, are of the Num type now, not Int or Rat as it was before:</p>
+<pre>say $x.add($y).WHAT; <em># (Num)</em>
+say $x.div($y).WHAT; <em># (Num)</em></pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-220" href="https://perl6.online/2018/01/06/parameterised-roles-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-220" href="https://perl6.online/2018/01/06/parameterised-roles-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-220" href="https://perl6.online/2018/01/06/parameterised-roles-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-220-5afe9da717ab2" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=220&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-220-5afe9da717ab2" id="like-post-wrapper-139853928-220-5afe9da717ab2"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

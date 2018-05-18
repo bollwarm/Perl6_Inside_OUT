@@ -1,0 +1,85 @@
+
+		<p>Today, the journey to the internals of Int continues and first let’s make a deep dive into one on of the fascinating methods, <tt>is-prime</tt>. If you never used it, this is a great method that implements the logic, which is usually not built-in in a programming language. It is also great because primality is an attribute of an integer and you get it for free for all integer numbers in Perl 6.</p>
+<p>So, this is how the method is defined in src/core/Int.pm:</p>
+<pre>method is-prime(--&gt; Bool:D) {
+    nqp::p6bool(nqp::isprime_I(self,100))
+}</pre>
+<p>As in many other cases, a Perl module only passes execution to some underlying NQP function. Let us try to track it down. The constant 100 in the call is a number of tests, which I will not touch here: you may get the details of the <a href="https://en.wikipedia.org/wiki/Miller%E2%80%93Rabin_primality_test">algorithm</a> on Wikipedia, for example.</p>
+<p>In the NQP sources, you are asked (src/vm/moar/QAST/QASTOperationsMAST.nqp) to go one level further, to MoarVM:</p>
+<pre>QAST::MASTOperations.add_core_moarop_mapping(&#39;isprime_I&#39;, &#39;isprime_I&#39;);</pre>
+<p>For the JVM backend, the implementation is a bit easier to reach (src/vm/jvm/runtime/org/perl6/nqp/runtime/Ops.java):</p>
+<pre>public static long isprime_I(SixModelObject a, long certainty, ThreadContext tc) {
+    BigInteger bi = getBI(tc, a);
+    if (bi.compareTo(BigInteger.valueOf(1)) &lt;= 0) {
+        return 0;
+    }
+    return bi.<a href="https://www.tutorialspoint.com/java/math/biginteger_isprobableprime.htm">isProbablePrime</a>((int)certainty) ? 1 : 0;
+}</pre>
+<p>It is a surprise that detecting if the number is prime is not 100% precise (the more accuracy you want, the slower it works, and ideally the number of rounds should depend on the tested number, while I hope the chosen number of rounds should give more than enough that you ever need).</p>
+<p>For completeness, look briefly at the JavaScript function (<span class="s1">src/vm/js/nqp-runtime/bignum.js)</span>:</p>
+<pre>op.isprime_I = function(n) {
+     return intishBool(sslBignum(getBI(n).toString()).probPrime(50));
+};</pre>
+<p>For some reason, the number of tests is only 50 here.</p>
+<p>Nevertheless, MoarVM is my primary goal, so let us try exploring it further, even if it is not that easy.</p>
+<p>There are a few mappings and switches that select between different operations, such as (generated file src/core/ops.h):</p>
+<pre>#define MVM_OP_lcm_I 447
+#define MVM_OP_expmod_I 448
+<strong>#define MVM_OP_isprime_I 449</strong>
+#define MVM_OP_rand_I 450
+#define MVM_OP_coerce_In 451</pre>
+<p>An interesting fact about this generated list is that it is prepared by the script tools/update_ops.p6, which is a script in Perl 6:</p>
+<pre>#!/usr/bin/env perl6
+# This script processes the op list into a C header file that contains
+# info about the opcodes.</pre>
+<p>The numbers are, actually, opcodes. And then we finally get to the place where it looks like a function call is prepared (<span class="s1">src/jit/graph.c</span>):</p>
+<pre>case MVM_OP_isprime_I: {
+    MVMint16 dst = ins-&gt;operands[0].reg.orig;
+    MVMint32 invocant = ins-&gt;operands[1].reg.orig;
+    MVMint32 rounds = ins-&gt;operands[2].reg.orig;
+    MVMJitCallArg args[] = { { MVM_JIT_INTERP_VAR, MVM_JIT_INTERP_TC },
+                             { MVM_JIT_REG_VAL, <strong>invocant</strong> },
+                             { MVM_JIT_REG_VAL, <strong>rounds</strong> } };
+    jg_append_call_c(tc, jg, <strong>op_to_func(tc, op)</strong>, 3, args, MVM_JIT_RV_INT, dst);
+    break;
+}</pre>
+<p>In the list of arguments, you can see that the number of tests (rounds) is also passed. The <tt>op_to_func</tt> function takes the thread context and the opcode. The function is defined in the same file and is a set of another switch/case sequence:</p>
+<pre>static void * op_to_func(MVMThreadContext *tc, MVMint16 opcode) {
+    switch(opcode) {
+        case MVM_OP_checkarity: return MVM_args_checkarity;
+        case MVM_OP_say: return MVM_string_say;
+        case MVM_OP_print: return MVM_string_print;
+        . . .
+        <strong>case MVM_OP_isprime_I: return MVM_bigint_is_prime;</strong></pre>
+<p>It returns a pointer to a function (<tt>void *</tt>) that should finally do the job, so let’s look for <tt>MVM_bigint_is_prime</tt>. It is found in src/math/bigintops.c in the MoarVM repository:</p>
+<pre>MVMint64 MVM_bigint_is_prime(MVMThreadContext *tc, MVMObject *a, MVMint64 b) {
+    /* mp_prime_is_prime returns True for 1, and I think
+     * it&#39;s worth special-casing this particular number :-)
+     */
+     MVMP6bigintBody *ba = get_bigint_body(tc, a);
+
+    if (MVM_BIGINT_IS_BIG(ba) || ba-&gt;u.smallint.value != 1) {
+        mp_int *tmp[1] = { NULL };
+        mp_int *ia = force_bigint(ba, tmp);
+        if (mp_cmp_d(ia, 1) == MP_EQ) {
+            clear_temp_bigints(tmp, 1);
+            return 0;
+        }
+        else {
+            int result;
+            <strong>mp_prime_is_prime(ia, b, &amp;result);</strong>
+            clear_temp_bigints(tmp, 1);
+            return result;
+        }
+    } else {
+        /* we only reach this if we have a smallint that&#39;s equal to 1.
+         * which we define as not-prime. */
+        return 0;
+    }
+}</pre>
+<p>This function passes the job further to a library function <tt>mp_prime_is_prime</tt>.</p>
+<p>If you followed the adventures of the method internals in this blog post, you might be quite exhausted. So let me stop for today because there’s a lot more to say about today’s topic.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-342" href="https://perl6.online/2018/01/18/exploring-the-int-type-in-perl-6-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-342" href="https://perl6.online/2018/01/18/exploring-the-int-type-in-perl-6-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-342" href="https://perl6.online/2018/01/18/exploring-the-int-type-in-perl-6-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-342-5afe9d8bb4f8a" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=342&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-342-5afe9d8bb4f8a" id="like-post-wrapper-139853928-342-5afe9d8bb4f8a"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

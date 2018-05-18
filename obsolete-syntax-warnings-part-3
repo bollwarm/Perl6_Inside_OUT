@@ -1,0 +1,83 @@
+
+		<p>A couple of weeks ago, we looked at some <a href="https://perl6.online/2017/12/29/obsolete-syntax-warnings-part-1/">error messages</a> that Perl 6 generates when it sees the Perl 5 constructions. Let us continue and go through another portion of the messages that are there in today’s Rakudo.</p>
+<h2>\x[]</h2>
+<p>We start with a simple error message that informs you to use new syntax when embedding a character by its code. In Perl 5, you could use <tt>\x{23}</tt> to get a hash characters, while in Perl 6 it is an error:</p>
+<pre>$ perl6 -e&#39;say &quot;\x{23}&quot;&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of curlies around escape argument;
+in Perl 6 please use square brackets
+at -e:1
+------&gt; say &quot;\x{⏏23}&quot;</pre>
+<p>Neither it works with regexes, for example:</p>
+<pre>say &quot;###&quot; ~~ /\x{23}/</pre>
+<p>Replacing braces with square brackets helps:</p>
+<pre>$ perl6 -e&#39;say &quot;\x[23]&quot;&#39;
+#</pre>
+<p>Similarly, Perl 6 expects the brackets for octal numbers:</p>
+<pre>$ perl6 -e&#39;say &quot;\o[123]&quot;&#39;
+S</pre>
+<p>In the Grammar, this situation is caught by the following tokens.</p>
+<p>For quoted strings:</p>
+<pre>role b1 {
+    token backslash:sym&lt;x&gt; {
+        :dba(&#39;hex character&#39;) &lt;sym&gt; [ &lt;hexint&gt; | 
+        &#39;[&#39; ~ &#39;]&#39; &lt;hexints&gt; | &#39;{&#39; &lt;.obsbrace1&gt; ] }
+    . . .
+}</pre>
+<p>For regexes:</p>
+<pre>token backslash:sym&lt;x&gt; { 
+    :i :dba(&#39;hex character&#39;) &lt;sym&gt; [ &lt;hexint&gt; | 
+    &#39;[&#39; ~ &#39;]&#39; &lt;hexints&gt; | &#39;{&#39; &lt;.obsbrace&gt; ] }
+
+. . .
+
+token metachar:sym&lt;{}&gt; { \\&lt;[xo]&gt;&#39;{&#39; &lt;.obsbrace&gt; }</pre>
+<p>The <tt>obsbrace</tt> method itself is just a simple error message call:</p>
+<pre>token obsbrace { &lt;.obs(&#39;curlies around escape argument&#39;,
+                       &#39;square brackets&#39;)&gt; }</pre>
+<h2>Old regex modifiers</h2>
+<p>As soon as we are talking about regexes, here’s another set of error catchers complaining about the Perl 5 syntax of the regex modifiers:</p>
+<pre>token old_rx_mods {
+    (&lt;[ i g s m x c e ]&gt;)
+    {
+        my $m := $/[0].Str;
+        if $m eq &#39;i&#39; { $/.obs(&#39;/i&#39;,&#39;:i&#39;); }
+        elsif $m eq &#39;g&#39; { $/.obs(&#39;/g&#39;,&#39;:g&#39;); }
+        elsif $m eq &#39;m&#39; { $/.obs(&#39;/m&#39;,&#39;^^ and $$ anchors&#39;); }
+        elsif $m eq &#39;s&#39; { $/.obs(&#39;/s&#39;,&#39;. or \N&#39;); }
+        elsif $m eq &#39;x&#39; { $/.obs(&#39;/x&#39;,&#39;normal default whitespace&#39;); }
+        elsif $m eq &#39;c&#39; { $/.obs(&#39;/c&#39;,&#39;:c or :p&#39;); }
+        elsif $m eq &#39;e&#39; { $/.obs(&#39;/e&#39;,&#39;interpolated {...} or s{} = ... form&#39;); }
+        else { $/.obs(&#39;suffix regex modifiers&#39;,&#39;prefix adverbs&#39;); }
+    }
+}</pre>
+<p>This code is quite self-explanatory, so a simple example would be enough:</p>
+<pre>$ ./perl6 -e&#39;&quot;abc&quot; ~~ <strong>/a/i</strong>&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of /i; in Perl 6 please use :i
+at -e:1
+------&gt; &quot;abc&quot; ~~ /a/i⏏&lt;EOL&gt;</pre>
+<p>One of the following correct forms is expected:</p>
+<pre>$ ./perl6 -e&#39;say &quot;abc&quot; ~~ <strong>m:i</strong>/A/&#39;
+｢a｣
+
+$ ./perl6 -e&#39;say &quot;abc&quot; ~~ /[<strong>:i</strong> A]/&#39;
+｢a｣</pre>
+<p>As an exercise, write an incorrect Perl 6 code that generates the last error message, <em>Unsupported use of suffix regex modifiers, in Perl 6 please use prefix adverbs</em>.</p>
+<h2>tr///</h2>
+<p>Another regex-related construct, <tt>y///</tt> does not exist in Perl 6, only the <tt>tr///</tt> form is supported now:</p>
+<pre>token quote:sym&lt;y&gt; {
+    &lt;sym&gt;
+    &lt;?before \h*\W&gt;
+    {} &lt;.qok($/)&gt;
+    <strong>&lt;.obs(&#39;y///&#39;,&#39;tr///&#39;)&gt;</strong>
+}</pre>
+<p>Here is an example of the correct program:</p>
+<pre>my $x = &quot;abc&quot;;
+$x ~~ tr/b/p/;
+say $x; # apc</pre>
+<p>That’s it for today. We will continue with more obsolete errors in a few days.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-307" href="https://perl6.online/2018/01/13/obsolete-syntax-warnings-part-3/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-307" href="https://perl6.online/2018/01/13/obsolete-syntax-warnings-part-3/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-307" href="https://perl6.online/2018/01/13/obsolete-syntax-warnings-part-3/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-307-5afe9d993df5f" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=307&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-307-5afe9d993df5f" id="like-post-wrapper-139853928-307-5afe9d993df5f"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

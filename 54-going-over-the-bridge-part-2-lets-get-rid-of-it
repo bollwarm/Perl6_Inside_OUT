@@ -1,0 +1,116 @@
+
+		<p>Today, we continue working with the <tt>Bridge</tt> method in Rakudo Perl 6. <a href="https://perl6.online/2018/02/11/53-going-over-the-bridge-part-1/">Yesterday</a>, we saw the definitions of the methods in a few pre-defined data types. It is time to see how the method is used.</p>
+<p><img alt="Bridge" class="alignnone size-full wp-image-521" data-attachment-id="521" data-comments-opened="1" data-image-description="" data-image-meta="{&quot;aperture&quot;:&quot;0&quot;,&quot;credit&quot;:&quot;&quot;,&quot;camera&quot;:&quot;&quot;,&quot;caption&quot;:&quot;&quot;,&quot;created_timestamp&quot;:&quot;0&quot;,&quot;copyright&quot;:&quot;&quot;,&quot;focal_length&quot;:&quot;0&quot;,&quot;iso&quot;:&quot;0&quot;,&quot;shutter_speed&quot;:&quot;0&quot;,&quot;title&quot;:&quot;&quot;,&quot;orientation&quot;:&quot;0&quot;}" data-image-title="Bridge" data-large-file="https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=1100?w=1000" data-medium-file="https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=1100?w=300" data-orig-file="https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=1100" data-orig-size="1000,708" data-permalink="https://perl6.online/2018/02/12/54-going-over-the-bridge-part-2-lets-get-rid-of-it/bridge/" sizes="(max-width: 1000px) 100vw, 1000px" src="https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=1100" srcset="https://inperl6.files.wordpress.com/2018/02/bridge1.jpg 1000w, https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=150 150w, https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=300 300w, https://inperl6.files.wordpress.com/2018/02/bridge1.jpg?w=768 768w"></p>
+<h2>What’s inside?</h2>
+<p>The major use of the method is inside the <tt>Real</tt> role, which contains the following set of methods:</p>
+<pre>method sqrt() { self.Bridge.sqrt }
+method rand() { self.Bridge.rand }
+method sin() { self.Bridge.sin }
+method asin() { self.Bridge.asin }
+method cos() { self.Bridge.cos }
+method acos() { self.Bridge.acos }
+method tan() { self.Bridge.tan }
+method atan() { self.Bridge.atan }
+. . .
+method sec() { self.Bridge.sec }
+method asec() { self.Bridge.asec }
+method cosec() { self.Bridge.cosec }
+method acosec() { self.Bridge.acosec }
+method cotan() { self.Bridge.cotan }
+method acotan() { self.Bridge.acotan }
+method sinh() { self.Bridge.sinh }
+method asinh() { self.Bridge.asinh }
+method cosh() { self.Bridge.cosh }
+method acosh() { self.Bridge.acosh }
+method tanh() { self.Bridge.tanh }
+method atanh() { self.Bridge.atanh }
+method sech() { self.Bridge.sech }
+method asech() { self.Bridge.asech }
+method cosech() { self.Bridge.cosech }
+method acosech() { self.Bridge.acosech }
+method cotanh() { self.Bridge.cotanh }
+method acotanh() { self.Bridge.acotanh }
+method floor() { self.Bridge.floor }
+method ceiling() { self.Bridge.ceiling }
+. . .
+multi method log(Real:D: ) { self.Bridge.log }
+multi method exp(Real:D: ) { self.Bridge.exp }</pre>
+<p>There are a few routines with a different pattern, where the method is called twice: once for getting to the needed function; second to coerce the value:</p>
+<pre>multi method atan2(Real $x = 1e0) { self.Bridge.atan2($x.Bridge) }
+multi method atan2(Cool $x = 1e0) { self.Bridge.atan2($x.Numeric.Bridge) }
+multi method atan2(Real $x = 1e0) { self.Bridge.atan2($x.Bridge) }
+multi method atan2(Cool $x = 1e0) { self.Bridge.atan2($x.Numeric.Bridge) }
+multi method log(Real:D: Real $base) { self.Bridge.log($base.Bridge) }
+. . .
+multi sub atan2(Real \a, Real \b = 1e0) { a.Bridge.atan2(b.Bridge) }</pre>
+<p>As you see, the <tt>atan2</tt> function is defined both as a method and as a subroutine. To confuse you a bit more, there are two versions of it:</p>
+<pre>proto sub atan2($, $?) {*}
+multi sub atan2(Real \a, Real \b = 1e0) { a.Bridge.atan2(b.Bridge) }
+# should really be (Cool, Cool), and then (Cool, Real) and (Real, Cool)
+# candidates, but since Int both conforms to Cool and Real, we&#39;d get lots
+# of ambiguous dispatches. So just go with (Any, Any) for now.
+multi sub atan2( \a, \b = 1e0) { a.Numeric.atan2(b.Numeric) }</pre>
+<p>Finally, a couple of methods for type conversions:</p>
+<pre>method Bridge(Real:D:) { self.Num }
+method Int(Real:D:) { self.Bridge.Int }
+method Num(Real:D:) { self.Bridge.Num }
+multi method Str(Real:D:) { self.Bridge.Str }
+method Rat(Real:D: Real $epsilon = 1.0e-6) { self.Bridge.Rat($epsilon) }</pre>
+<p>Notice that the <tt>Bridge</tt> method of the <em><tt>Real</tt></em> role returns a <em><tt>Num</tt></em> value.</p>
+<p>Some infix methods are also using the method in hand:</p>
+<pre>multi sub infix:&lt;+&gt;(Real \a, Real \b) { a.Bridge + b.Bridge }
+multi sub infix:&lt;-&gt;(Real \a, Real \b) { a.Bridge - b.Bridge }
+multi sub infix:&lt;*&gt;(Real \a, Real \b) { a.Bridge * b.Bridge }
+multi sub infix:&lt;/&gt;(Real \a, Real \b) { a.Bridge / b.Bridge }
+multi sub infix:&lt;%&gt;(Real \a, Real \b) { a.Bridge % b.Bridge }
+multi sub infix:&lt;**&gt;(Real \a, Real \b) { a.Bridge ** b.Bridge }
+multi sub infix:«&lt;=&gt;»(Real \a, Real \b) { a.Bridge &lt;=&gt; b.Bridge }
+multi sub infix:&lt;==&gt;(Real \a, Real \b) { a.Bridge == b.Bridge }
+multi sub infix:«&lt;»(Real \a, Real \b) { a.Bridge &lt; b.Bridge }
+multi sub infix:«&lt;=»(Real \a, Real \b) { a.Bridge &lt;= b.Bridge }
+multi sub infix:«≤» (Real \a, Real \b) { a.Bridge ≤ b.Bridge }
+multi sub infix:«&gt;»(Real \a, Real \b) { a.Bridge &gt; b.Bridge }
+multi sub infix:«&gt;=»(Real \a, Real \b) { a.Bridge &gt;= b.Bridge }
+multi sub infix:«≥» (Real \a, Real \b) { a.Bridge ≥ b.Bridge }
+multi sub prefix:&lt;-&gt;(Real:D \a) { -a.Bridge }</pre>
+<h2>Trace the calls</h2>
+<p>To see when the <tt>Bridge</tt> method is called, let us do a few simple experiments. I added a few <tt>nqp::say</tt> calls and run the REPL console to invoke a <tt>sin</tt> method on the variables of different types.</p>
+<p>With the <tt>Num</tt> data type, a direct method is called:</p>
+<pre>&gt; my <strong>Num</strong> $n = 1e1; 
+10
+&gt; $n.sin
+<strong>Num.sin</strong></pre>
+<p>This method is calling the underlying NQP function:</p>
+<pre>proto method sin(|) {*}
+multi method sin(Num:D: ) {
+    nqp::p6box_n(nqp::sin_n(nqp::unbox_n(self)));
+}</pre>
+<p>With other data types, you travel via the <tt>Real</tt> role:</p>
+<pre>&gt; my <strong>Int</strong> $i = 1;
+1
+&gt; $i.sin
+<strong>Real.sin</strong>
+<strong>Num.sin</strong>
+
+&gt; my <strong>Rat</strong> $r = 1/2;
+0.5
+&gt; $r.sin
+<strong>Real.sin</strong>
+<strong>Num.sin</strong></pre>
+<p>The same path you experience with your own types, if they are inherited from the built-in ones:</p>
+<pre>&gt; class MyInt is Int {}
+&gt; my <strong>MyInt</strong> $mi = MyInt.new
+0
+&gt; $mi.sin
+<strong>Real.sin</strong>
+<strong>Num.sin</strong></pre>
+<h2>Get rid of it</h2>
+<p>I <a href="https://github.com/ash/rakudo/commit/bd7162ef6123ea93c59178095439ada3bd9e7bd7">revised all the places</a> where the method was used in my clone of Rakudo. Mostly, they are replaced with a direct call of the <tt>Num</tt> method. In a few places it leads to double calls like <tt>$x.Num.Num</tt>, which were also reduced, of course.</p>
+<p>With the updated code, all the tests from Roast were passed. As a side effect, the speed in some cases is increased by around 3%:</p>
+<pre class="p1"><span class="s1">./perl6 -e&#39;for 1..10_000_000 {Int.new(1).sin}&#39;</span></pre>
+<p>It is quite an extensive change, and still, there is one thing left: the thing that causes <a href="https://rt.perl.org/Public/Bug/Display.html?id=126130">an infinite loop when you call the method on a newly created Real object</a>. It looks like the wrong hierarchy of the numerical data types is the main cause, but I assume that we can safely remove the <tt>Bridge</tt> method at least.</p>
+<p><strong>Update.</strong> They core developers (although at first not clearly understanding why it the method was needed at all) decided to keep the method and <a href="https://github.com/perl6/doc/commit/7060b488eb75b26ccf01106e65e559bb64873cf9">updated the documentation</a>, which is also a positive output 🙂</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-519" href="https://perl6.online/2018/02/12/54-going-over-the-bridge-part-2-lets-get-rid-of-it/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-519" href="https://perl6.online/2018/02/12/54-going-over-the-bridge-part-2-lets-get-rid-of-it/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-519" href="https://perl6.online/2018/02/12/54-going-over-the-bridge-part-2-lets-get-rid-of-it/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-519-5afe9d6031739" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=519&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-519-5afe9d6031739" id="like-post-wrapper-139853928-519-5afe9d6031739"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

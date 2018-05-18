@@ -1,0 +1,67 @@
+
+		<p>In Rakudo, there is a useful routine <tt>dd</tt>, which is not a part of Perl 6 itself. It dumps its argument(s) in a way that you immediately see the type and content of a variable. For example:</p>
+<pre>$ ./perl6 -e&#39;my Bool $b = True; dd($b)&#39;
+Bool $b = Bool::True</pre>
+<p>It works well with data of other types, for example, with arrays:</p>
+<pre>$ ./perl6 -e&#39;my @a = &lt; a b c &gt;; dd(@a)&#39;
+Array @a = [&quot;a&quot;, &quot;b&quot;, &quot;c&quot;]</pre>
+<p>Today, we will look at the definition of the <tt>dd</tt> routine.</p>
+<p>It is located in the src/core/Any.pm module as part of the <tt>Any</tt> class. The code is quite small, so let us show it here:</p>
+<pre>sub dd(|) {
+    my Mu $args := nqp::p6argvmarray();
+    if nqp::elems($args) {
+        while $args {
+            my $var  := nqp::shift($args);
+            my $name := try $var.VAR.?name;
+            my $type := $var.WHAT.^name;
+            my $what := $var.?is-lazy
+              ?? $var[^10].perl.chop ~ &quot;... lazy list)&quot;
+              !! $var.perl;
+            note $name ?? &quot;$type $name = $what&quot; !! $what;
+        }
+    }
+    else { <em># tell where we are</em>
+        note .name
+          ?? &quot;{lc .^name} {.name}{.signature.gist}&quot;
+          !! &quot;{lc .^name} {.signature.gist}&quot;
+          with callframe(1).code;
+    }
+    return
+}</pre>
+<h2>Call with arguments</h2>
+<p>The vertical bar, which we have already seen earlier, is a signature that captures argument lists with no type checking. It is not possible to omit it and leave empty parentheses, as in that case the routine can only be called without arguments.</p>
+<p>Inside, some NQP-magic happens but that is quite readable for us. If there are arguments, the routine loops over them, shifting the next argument in each cycle.</p>
+<p>Then, there is an attempt to get the name, type and content:</p>
+<pre>my $name := try $var.VAR.?name;
+my $type := $var.WHAT.^name;</pre>
+<p>Notice the presence of <tt>try</tt> and <tt>?</tt> in the method call. We already saw the pattern when we were taking about string interpolation. The <tt>?name</tt> is only called on an object if the method exists there, and does not generate an error if not.</p>
+<p>The content is a bit more difficult thing:</p>
+<pre>my $what := $var.?is-lazy
+    ?? $var[^10].perl.chop ~ &quot;... lazy list)&quot;
+    !! $var.perl;</pre>
+<p>The result depends on whether an object is a lazy list or not. For example, try dumping an infinite range:</p>
+<pre>$ ./perl6 -e&#39;dd 1..∞&#39;
+(1, 2, 3, 4, 5, 6, 7, 8, 9, 10... lazy list)</pre>
+<p>Only the first ten items are listed. For a non-lazy object, the <tt>perl</tt> method is called.</p>
+<p>Finally, the result is printed to STDERR:</p>
+<pre>note $name ?? &quot;$type $name = $what&quot; !! $what;</pre>
+<h2>Call with no arguments</h2>
+<p>The second branch of the <tt>dd</tt> routine is triggered when there are no arguments. In that case, the routine tries to give some information about the place where it is called. Look at the following example:</p>
+<pre>sub f() { dd }
+f;</pre>
+<p>The result of running this program shows the name and the signature of the function:</p>
+<pre class="p1"><em><span class="s1">sub f()</span></em></pre>
+<p>A good use case can be thus to use <tt>dd</tt> in multi-functions instead of printing manual text messages.</p>
+<pre>multi sub f(Int) { dd }
+multi sub f(Str) { dd }
+
+f(42);
+f(&#39;42&#39;);</pre>
+<p>Run the program, and it prints an extremely useful debugging information:</p>
+<pre><em>sub f(Int)</em>
+<em>sub f(Str)</em></pre>
+<p>That’s all for today. See you tomorrow!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-80" href="https://perl6.online/2017/12/26/the-dd-routine/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-80" href="https://perl6.online/2017/12/26/the-dd-routine/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-80" href="https://perl6.online/2017/12/26/the-dd-routine/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-80-5afe9dbc12624" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=80&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-80-5afe9dbc12624" id="like-post-wrapper-139853928-80-5afe9dbc12624"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

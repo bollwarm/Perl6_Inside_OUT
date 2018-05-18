@@ -1,0 +1,79 @@
+
+		<p>In Perl 6, there is an infix operator called <tt>cmp</tt>. Despite its simple name and some connotations with its counter partner in Perl 5, its semantic is not trivial.</p>
+<p>From the documentation, we read:</p>
+<p style="padding-left:30px;"><em>Generic, “smart” three-way comparator.</em></p>
+<p style="padding-left:30px;"><em>Compares strings with string semantics, numbers with number semantics, Pair objects first by key and then by value etc.</em></p>
+<p>As we have access to the source codes, let us directly look inside and allow us to begin with strings, so go to src/core/Str.pm.</p>
+<pre>multi sub infix:&lt;cmp&gt;(Str:D \a, Str:D \b --&gt; Order:D) {
+    ORDER(nqp::cmp_s(nqp::unbox_s(a), nqp::unbox_s(b)))
+}
+multi sub infix:&lt;cmp&gt;(str $a, str $b --&gt; Order:D) {
+    ORDER(nqp::cmp_s($a, $b))
+}</pre>
+<p>There is a method operating two objects of the <tt>Str</tt> type and another method for the lower-cased type <tt>str</tt>, which is a native type, which we skip for now; just look at its definition in src/core/natives.pm:</p>
+<pre>my native str is repr(&#39;P6str&#39;) is Str { }</pre>
+<p>For the Perl 6 type, the objects are first converted to native strings via <tt>nqp::unbox_s</tt>.</p>
+<p>Then both methods delegate the comparison to the <tt>nqp::cmp_s</tt> function. It returns 1, 0, or -1, which is fine in NQP but not enough for Perl 6, where the result should be of the <tt>Order</tt> type—you can see the expected return type <tt>Order:D</tt> in the signature of the methods.</p>
+<p>Go to src/core/Order.pm to see that the <tt>Order</tt> type is an enumeration with the above three values:</p>
+<pre>my enum Order (:Less(-1), :Same(0), :More(1));</pre>
+<p>In the same file, there is a function that acts as a constructor coercing an integer to <tt>Order</tt>:</p>
+<pre>sub ORDER(int $i) {
+    nqp::iseq_i($i,0) ?? <strong>Same</strong> !! nqp::islt_i($i,0) ?? <strong>Less</strong> !! <strong>More</strong>
+}</pre>
+<p>So, the result of <tt>cmp</tt> is either <tt>Same</tt>, or <tt>Less</tt>, or <tt>More</tt>.</p>
+<p>We covered the hardest part already. The rest of the smartness of the <tt>cmp</tt> operator is due to multiple dispatching.</p>
+<p>For example, for the two given integers, the following functions are triggered (also defined in src/core/Order.pm):</p>
+<pre>multi sub infix:&lt;cmp&gt;(Int:D \a, Int:D \b) {
+    ORDER(nqp::cmp_I(nqp::decont(a), nqp::decont(b)))
+}
+multi sub infix:&lt;cmp&gt;(int $a, int $b) {
+    ORDER(nqp::cmp_i($a, $b))
+}</pre>
+<p>Here, there is not much difference from the string implementation. You may notice the different suffixes in the NQP methods.</p>
+<p>Then, step by step, variety rises. For example, integers and rationals:</p>
+<pre>multi sub infix:&lt;cmp&gt;(Int:D \a, <strong>Rational:D</strong> \b) {
+    a.isNaN || b.isNaN ?? a.Num cmp b.Num !! a &lt;=&gt; b
+}
+multi sub infix:&lt;cmp&gt;(<strong>Rational:D</strong> \a, Int:D \b) {
+    a.isNaN || b.isNaN ?? a.Num cmp b.Num !! a &lt;=&gt; b
+}</pre>
+<p>Again, the implementation is simple but of course it is different from what was needed for two integers or two strings.</p>
+<p>It gets more complicated for <tt>Real</tt> numbers:</p>
+<pre>multi sub infix:&lt;cmp&gt;(Real:D \a, Real:D \b) {
+       (nqp::istype(a, Rational) &amp;&amp; nqp::isfalse(a.denominator))
+    || (nqp::istype(b, Rational) &amp;&amp; nqp::isfalse(b.denominator))
+    ?? a.Bridge cmp b.Bridge
+    !! a === -Inf || b === Inf
+        ?? Less
+        !! a === Inf || b === -Inf
+            ?? More
+            !! a.Bridge cmp b.Bridge
+}</pre>
+<p>I leave parsing the algorithms to the reader as an exercise but would like to pay attention to the use of the <tt>Bridge</tt> method, which is a polymorphic method that we already saw as <a href="https://perl6.online/2018/01/17/28-exploring-the-int-type-in-perl-6-part-1/">part of the <tt>Int</tt> type.</a></p>
+<p>There are separate methods for comparing complex numbers, dates, lists, ranges, and even version numbers (which looks quite complicated, by the way, see it in src/core/Version.pm).</p>
+<p>At the bottom (or at the top, as you define what is more and less important—base or children classes), there are a few methods that deal with <tt>Mu</tt>:</p>
+<pre>proto sub infix:&lt;cmp&gt;(Mu $, Mu $) is pure {*}
+multi sub infix:&lt;cmp&gt;(\a, \b) {
+    nqp::eqaddr(a,b)
+      ?? Same
+      !! a.Stringy cmp b.Stringy
+}
+multi sub infix:&lt;cmp&gt;(Real:D \a, \b) {
+    a === -Inf
+      ?? Less
+      !! a === Inf
+        ?? More
+        !! a.Stringy cmp b.Stringy
+}
+multi sub infix:&lt;cmp&gt;(\a, Real:D \b) {
+    b === Inf
+      ?? Less
+      !! b === -Inf
+        ?? More
+        !! a.Stringy cmp b.Stringy
+}</pre>
+<p>That’s all for today, see you tomorrow!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-385" href="https://perl6.online/2018/01/22/33-the-cmp-infix-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-385" href="https://perl6.online/2018/01/22/33-the-cmp-infix-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-385" href="https://perl6.online/2018/01/22/33-the-cmp-infix-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-385-5afe9d83e744b" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=385&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-385-5afe9d83e744b" id="like-post-wrapper-139853928-385-5afe9d83e744b"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

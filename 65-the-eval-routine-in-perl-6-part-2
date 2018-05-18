@@ -1,0 +1,43 @@
+
+		<p>Welcome back! As you might notice, there was a small gap in the daily post flow.</p>
+<p>Before we are back to the Rakudo internals, a couple of words about some changes here. First of all, every post is now marked with either 🦋 or 🔬 (or with indistinguishable rectangles □ if your browser cannot display an emoji :-). These characters mean two categories of posts here: a butterfly stands for <a href="https://perl6.online/category/perl-6-syntax/">Perl 6 syntax</a>, while a microscope is for <a href="https://perl6.online/category/perl-6-internals/">Perl 6 internals</a>. In the first category, only user-level aspects or Perl 6 are discussed. In the second, we dig into the source codes of Rakudo. All the past post are updated accordingly.</p>
+<p>The second change is that I will occasionally post more articles in the Perl 6 syntax category because I found out that non-Russian speakers often like my <a href="https://perl6.ru/">Russian blog posts</a>. Those posts are mostly short texts explaining interesting features of Perl 6, such as the <tt>=~=</tt> operator or promises.</p>
+<p style="text-align:center;">* * *</p>
+<p>OK, now we have to talk about the <tt>EVAL</tt> routine. It is defined in the src/core/ForeignCode.pm file as a multi-function. Let us see at their signatures:</p>
+<pre>proto sub EVAL($code is copy where Blob|Cool, 
+               Str() :$lang = &#39;perl6&#39;,
+               PseudoStash :$context, *%n)
+
+multi sub EVAL($code, 
+               Str :$lang where { ($lang // &#39;&#39;) eq &#39;Perl5&#39; },
+               PseudoStash :$context)</pre>
+<p>Notice that one of the function is a <a href="https://perl6.online/2017/12/21/the-proto-keyword/">proto</a>, while another is the only multi-candidate. Unlike many other cases that you can see in the sources of Rakudo, this proto routine contains code. Refer to <a href="https://perl6.online/2018/02/21/63-more-on-the-proto-keyword-in-perl-6/">one of the recent blog posts</a> to see how it works.</p>
+<p>We start with an example from the <a href="https://perl6.online/2018/02/20/62-the-eval-routine-in-perl-6-part-1/">first part</a> of the article.</p>
+<pre>EVAL(&#39;say 123&#39;);</pre>
+<p>Here, the passed value is <tt>Str</tt>, and it is caught by the proto sub, as its first argument can be <tt>Cool</tt>.</p>
+<p>The sub creates a compiler for the given language (which is Perl 6 by default).</p>
+<pre>my $compiler := nqp::getcomp($lang);</pre>
+<p>The next step in the sub is to make a <em>string</em> out of <tt>$code</tt>. In this first example, this task is trivial.</p>
+<pre>$code = nqp::istype($code,Blob) ?? $code.decode(
+    $compiler.cli-options&lt;encoding&gt; // &#39;utf8&#39;
+) !! <span style="color:#0000ff;">$code.Str</span>;</pre>
+<p>Finally, the string is compiled:</p>
+<pre>my $compiled := $compiler.compile:
+    $code,
+    :outer_ctx($eval_ctx),
+    :global(GLOBAL),
+    :mast_frames(mast_frames),
+    |(:optimize($_) with nqp::getcomp(&#39;perl6&#39;).cli-options&lt;optimize&gt;),
+    |(%(:grammar($LANG&lt;MAIN&gt;), :actions($LANG&lt;MAIN-actions&gt;)) if $LANG);</pre>
+<p>After compilation, you get an object of the <tt>ForeignCode</tt> type. This class is a child class of <tt>Callable</tt>, so the object can be called and returned (actually, it’s not quite clear how it happens):</p>
+<pre>$compiled();</pre>
+<p>Now you can understand that single quotes in the second example with curly braces still create an executable code:</p>
+<pre>EVAL(&#39;say {456}&#39;);</pre>
+<p>Here, the whole string is compiled as it was a Perl 6 code, and the code block there is a code block, which Perl should execute, and thus <tt>say</tt> gets a code block, so it calls its <a href="https://perl6.online/2018/02/27/%f0%9f%a6%8b-64-what-is-gist-in-perl-6/"><tt>gist</tt> method</a> to prepare the output:</p>
+<pre><span class="s1">&gt; {456}.gist
+</span><strong><span class="s1">-&gt; ;; $_? is raw { #`(Block|140388575216888) ... }</span></strong></pre>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-667" href="https://perl6.online/2018/02/28/65-the-eval-routine-in-perl-6-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-667" href="https://perl6.online/2018/02/28/65-the-eval-routine-in-perl-6-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-667" href="https://perl6.online/2018/02/28/65-the-eval-routine-in-perl-6-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-667-5afe9d5027f56" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=667&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-667-5afe9d5027f56" id="like-post-wrapper-139853928-667-5afe9d5027f56"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

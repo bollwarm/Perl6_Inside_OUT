@@ -1,0 +1,79 @@
+
+		<p>Today, we continue examining the internals of the <tt>pick</tt> and <tt>roll</tt> methods. Yesterday, <a href="https://perl6.online/2018/02/02/exploring-the-pick-and-roll-methods-in-perl-6-part-1/">we discovered</a> how they work without arguments. It is time to see what the methods do to return multiple values.</p>
+<p>We start with <tt>roll</tt>, as it is simpler as it does not care about returning unique elements. The <tt>roll($N)</tt> is a separate multi-sub with quite a few lines of code:</p>
+<pre>multi method roll(\number) {
+    number == Inf
+        ?? self.roll(*)
+        !! self.is-lazy
+        ?? X::Cannot::Lazy.new(:action(&#39;.roll from&#39;)).throw
+        !! self.elems   # this allocates/reifies
+            ?? Seq.new(class :: does Iterator {
+                    has $!list;
+                    has Int $!elems;
+                    has int $!todo;
+                    method !SET-SELF(\list,\todo) {
+                        $!list := nqp::getattr(list,List,&#39;$!reified&#39;);
+                        $!elems = nqp::elems($!list);
+                        $!todo  = todo;
+                        self
+                    }
+                    method new(\list,\todo) {
+                        nqp::create(self)!SET-SELF(list,todo)
+                    }
+                    method pull-one() is raw {
+                        if $!todo {
+                            $!todo = $!todo - 1;
+                            nqp::atpos($!list,$!elems.rand.floor)
+                        }
+                        else {
+                            IterationEnd
+                        }
+                    }
+                }.new(self,number.Int))
+            !! Seq.new(Rakudo::Iterator.Empty)
+}</pre>
+<p>Let us try to understand what is happening here. First, the method delegates its work if the requested number of elements is infinite (we will discuss this case later) and rejects lazy lists with an exception:</p>
+<pre>&gt; (1...Inf).roll(10);
+Cannot .roll from a lazy list
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>The next check is a test whether the list has no elements: <tt>self.elems ??</tt>. If there are none, an empty sequence is returned:</p>
+<pre>!! Seq.new(Rakudo::Iterator.Empty)</pre>
+<p>By the way, this result differs from what a <tt>roll</tt> with no arguments would return for an empty list:</p>
+<pre>&gt; say [].roll;
+Nil
+
+&gt; say [].roll(1);
+()</pre>
+<p>OK, we cut off all the edge cases and look at the central part of the routine, which is not that simple. Let us dig it step by step. First, a new sequence is prepared — it will be returned to the calling code.</p>
+<pre><strong>Seq.new(</strong>
+
+<strong>)</strong></pre>
+<p>What do we see between the parentheses? A new object is created:</p>
+<pre>Seq.new(             
+    <strong>{</strong>
+
+<strong>    }.new(self,number.Int)</strong>
+)</pre>
+<p>What kind of object? This object is an instance of the anonymous class that implements the Iterator role.</p>
+<pre>Seq.new(             
+    <strong>class :: does Iterator</strong> {
+
+    }.new(self,number.Int)
+)</pre>
+<p>Finally, the class is filled with its attributes and methods. The role dictates the newly-built class to have some predefined methods, such as <tt>pull-one</tt>. The name suggests that the method returns one element each time it is called.</p>
+<pre>method pull-one() is raw {
+    if $!todo {
+        $!todo = $!todo - 1;
+        nqp::atpos($!list,$!elems.rand.floor)
+    }
+    else {
+        IterationEnd
+    }
+}</pre>
+<p>You may immediately understand how this works if I tell you that the <tt>$!todo</tt> attribute is an integer which is set to the value that was passed to the <tt>roll</tt> method. Thus, it works as a countdown counter. When zero is reached, <tt>IterationEnd</tt> is returned (which <a href="https://docs.perl6.org/type/Iterator#IterationEnd">means to stop</a> making more calls of <tt>pull-one</tt>).</p>
+<p>You can trace the initialisation of the attributes in the anonymous class constructor as an exercise.</p>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-470" href="https://perl6.online/2018/02/03/45-exploring-the-pick-and-the-roll-methods-in-perl-6-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-470" href="https://perl6.online/2018/02/03/45-exploring-the-pick-and-the-roll-methods-in-perl-6-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-470" href="https://perl6.online/2018/02/03/45-exploring-the-pick-and-the-roll-methods-in-perl-6-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-470-5afe9d71e9f55" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=470&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-470-5afe9d71e9f55" id="like-post-wrapper-139853928-470-5afe9d71e9f55"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

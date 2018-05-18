@@ -1,0 +1,86 @@
+
+		<p>In Perl 6, there is a so-called <em>approximately-equal operator</em> <tt>=~=</tt>. It compares two numbers approximately.</p>
+<p>If both values are non-zero, the operator calculates their relative difference; the tolerance is defined by the <tt>$*TOLERANCE</tt> variable, which equals to 1E-15 by default. So, for two numbers <tt>$a</tt> and <tt>$b</tt>, the result (in pseudo-code) is:</p>
+<pre>|$a - $b| / max(|$a|, |$b|) &lt; $*TOLERANCE</pre>
+<p>(As an exercise, try implementing the absolute value operator so that it looks like the mathematical notation above.)</p>
+<p>Let us look at the implementation of the operator. It is located in src/core/Numeric.pm.</p>
+<p>First of all, you will notice that the ASCII variant is directly converted to the call of the Unicode version:</p>
+<pre>sub infix:&lt;=~=&gt;(|c) { infix:&lt;≅&gt;(|c) }</pre>
+<p>The actual code is placed just above that line.</p>
+<pre>proto sub infix:&lt;≅&gt;(Mu $?, Mu $?, *%) {*} # note, can&#39;t be pure due to dynvar
+multi sub infix:&lt;≅&gt;($?) { Bool::True }
+multi sub infix:&lt;≅&gt;(\a, \b, :$tolerance = $*TOLERANCE) {
+    # If operands are non-0, scale the tolerance to the larger of the abs values.
+    # We test b first since $value ≅ 0 is the usual idiom and falsifies faster.
+    if b &amp;&amp; a &amp;&amp; $tolerance {
+        abs(a - b) &lt; (a.abs max b.abs) * $tolerance;
+    }
+    else { # interpret tolerance as absolute
+        abs(a.Num - b.Num) &lt; $tolerance;
+    }
+}</pre>
+<p>As you see here, the routine checks if both operands are non-zero, and in this case uses the formula. If at least one of the operands is zero, the check is simpler and basically means whether the non-zero value is small enough. (Ignore the presence of the tolerance adverb for simplicity.)</p>
+<p>Compare the speed of the two branches by making thousands of comparisons:</p>
+<pre>$ time ./perl6 -e&#39;0.1 =~= 0 for ^100_000&#39;
+$ time ./perl6 -e&#39;0.1 =~= 0.2 for ^100_000&#39;</pre>
+<p>On my computer, the times were approximately 2.5 and 4.3 seconds. So, indeed, the check is faster if one of the values is zero.</p>
+<p>But now think about the algorithm. The subroutine tests its arguments and decides which of the two ways to go. Does it ring a bell for you?</p>
+<p>This is exactly what multi-subs are meant for!</p>
+<p>So, lets us re-write the code to have all variants in separate multi-subs:</p>
+<pre>multi sub infix:&lt;≅&gt;(<strong>0, 0</strong>, :$tolerance = $*TOLERANCE) {
+    Bool::True
+}
+
+multi sub infix:&lt;≅&gt;(<strong>\a, 0</strong>, :$tolerance = $*TOLERANCE) {
+    a.abs &lt; $tolerance
+}
+
+multi sub infix:&lt;≅&gt;(<strong>0, \b</strong>, :$tolerance = $*TOLERANCE) {
+    b.abs &lt; $tolerance
+}
+
+multi sub infix:&lt;≅&gt;(<strong>\a, \b</strong>, :$tolerance = $*TOLERANCE) {
+    abs(a - b) &lt; (a.abs max b.abs) * $tolerance;
+}</pre>
+<p>Recompile and run the same time measurements. This time, it was 2.8 and 3.8 seconds. So, for non-zero arguments its became 10-15% faster, and a bit slower in the other case.</p>
+<p>Is there more room for improvement? What I don’t really like is an additional named argument that is present everywhere. As we still can change the $*<tt>TOLERANCE</tt> variable locally, why always passing it? Create more multi-subs:</p>
+<pre>multi sub infix:&lt;≅&gt;(0, 0) {
+    Bool::True
+}
+
+multi sub infix:&lt;≅&gt;(\a, 0) {
+    a.abs &lt; $*TOLERANCE
+}
+
+multi sub infix:&lt;≅&gt;(0, \b) {
+    b.abs &lt; $*TOLERANCE
+}
+
+multi sub infix:&lt;≅&gt;(\a, \b) {
+    abs(a - b) &lt; (a.abs max b.abs) * $*TOLERANCE;
+}
+
+
+multi sub infix:&lt;≅&gt;(0, 0, :$tolerance) {
+    Bool::True
+}
+
+multi sub infix:&lt;≅&gt;(\a, 0, :$tolerance) {
+    a.abs &lt; $tolerance
+}
+
+multi sub infix:&lt;≅&gt;(0, \b, :$tolerance) {
+    b.abs &lt; $tolerance
+}
+
+# multi sub infix:&lt;≅&gt;(\a, \b, :$tolerance) {
+#     abs(a - b) &lt; (a.abs max b.abs) * $tolerance;
+# }</pre>
+<p>At this point, there are two sets of multi-subs: pure functions for two arguments, and functions that take the custom tolerance value.</p>
+<p>Compile. Run. Measure.</p>
+<p>Perl 6 shows its fantastic ability of multiple dispatching. This time, the average time for both cases (0.1 =~= 0 and 0.1 =~= 0.2) was approximately the same: 2.5 seconds. Which speeds up the original operator for about 70%!</p>
+<p>(The last sub is commented out as it leads to an infinite error message that one of the variables is undefined ¯\_(ツ)_/¯. I tried to fix it by adding <tt>Mu:D</tt> before the adverb but it decreased the speed back to 3.8 seconds, which is still better then the original result, though.)</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-282" href="https://perl6.online/2018/01/10/the-tolerance-operator-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-282" href="https://perl6.online/2018/01/10/the-tolerance-operator-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-282" href="https://perl6.online/2018/01/10/the-tolerance-operator-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-282-5afe9d9e33088" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=282&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-282-5afe9d9e33088" id="like-post-wrapper-139853928-282-5afe9d9e33088"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

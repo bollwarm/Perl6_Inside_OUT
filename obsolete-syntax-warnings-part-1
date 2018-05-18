@@ -1,0 +1,86 @@
+
+		<p>Yesterday, we saw an error message about the improper syntax of the ternary operator. Let’s look at other similar things that the Rakudo designers has implemented for us to make the transition from Perl 5 smoother.</p>
+<p>First of all, the Perl 6 grammar file (src/Perl6/Grammar.nqp) contains four different methods for reacting to obsolete syntax:</p>
+<pre>method obs($old, $new, $when = &#39;in Perl 6&#39;) {
+    $*W.throw(self.MATCH(), [&#39;X&#39;, &#39;Obsolete&#39;],
+        old         =&gt; $old,
+        replacement =&gt; $new,
+        when        =&gt; $when,
+    );
+}
+method obsvar($name) {
+    $*W.throw(self.MATCH(), [&#39;X&#39;, &#39;Syntax&#39;, &#39;Perl5Var&#39;], :$name);
+}
+
+method sorryobs($old, $new, $when = &#39;in Perl 6&#39;) {
+    $*W.throw(self.MATCH(), [&#39;X&#39;, &#39;Obsolete&#39;],
+        old         =&gt; $old,
+        replacement =&gt; $new,
+        when        =&gt; $when,
+    );
+}
+
+method worryobs($old, $new, $when = &#39;in Perl 6&#39;) {
+    self.typed_worry(&#39;X::Obsolete&#39;,
+        old         =&gt; $old,
+        replacement =&gt; $new,
+        when        =&gt; $when,
+    );
+}</pre>
+<p>Three of these methods throw exceptions, the fourth one prints a warning. The final text of the error message is using the information from the arguments of the methods. For example, this is what we saw yesterday:</p>
+<pre>&lt;.obs(&#39;? and : for the ternary conditional operator&#39;, &#39;?? and !!&#39;)&gt;</pre>
+<p>This part of the token regex is transformed to the following error message (the parts from the regex are highlighted):</p>
+<pre>Unsupported use of <strong>? and : for the ternary conditional operator</strong>;
+in Perl 6 please use <strong>?? and !!</strong></pre>
+<h2>Obsolete syntax</h2>
+<p>Let us see what other messages we have in the current Rakudo Perl 6 compiler.</p>
+<h3>Negative indices</h3>
+<p>The first example is very likely one of the most common mistake that a Perl 5 programmer faces when programming in Perl 6.</p>
+<pre>$ perl6 -e&#39;my @a; say @a[-1]&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of a negative -1 subscript to index from the end;
+in Perl 6 please use a function such as *-1
+at -e:1
+------&gt; my @a; say @a[-1]⏏</pre>
+<p>To count from the end of the array, you should use a WhateverCode instead of negative integers. This is how the error message is encoded in the src/Perl6/Actions.nqp file (notice that this is an NQP module, not the Perl 6 one, while the syntax is very clear):</p>
+<pre>method postcircumfix:sym&lt;[ ]&gt;($/) {
+    . . .
+    my $ix := $_ ~~ / [ ^ | &#39;..&#39; ] \s* <strong>&lt;( &#39;-&#39; \d+ )&gt;</strong> \s* $ /;
+    if $ix {
+        $c.obs(&quot;a negative &quot; ~ $ix ~ &quot; subscript to index from the end&quot;, 
+               &quot;a function such as *&quot; ~ $ix);
+    }
+    . . .
+}</pre>
+<p>The <tt>$c</tt> variable is the current symbol in the syntax tree, and the <tt>$ix</tt> is a negative index taken from the square brackets (notice the position of the capturing parentheses inside the regex). If there is a negative index, an error message is generated for your pleasure.</p>
+<p>The rest of the <tt>.obs</tt> calls happen in the src/Perl6/Grammar.nqp file.</p>
+<h3>Perl 6 loop, not C-style for</h3>
+<p>The <tt>for</tt> loop in Perl 6 is designed to work with lists or arrays, so using it in the C-style, which is allowed in Perl 5, is prohibited:</p>
+<pre>$ perl6 -e&#39;<strong>for (my $i = 1; $i != 10; $i++)</strong> {}&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of C-style &quot;for (;;)&quot; loop;
+in Perl 6 please use &quot;loop (;;)&quot;
+at -e:1
+------&gt; for ⏏(my $i = 1; $i != 10; $i++) {}</pre>
+<p>Localise that error message in the grammar:</p>
+<pre>rule statement_control:sym&lt;for&gt; {
+    &lt;sym&gt;&lt;.kok&gt; {}
+    [ &lt;?before &#39;my&#39;? &#39;$&#39;\w+\s+&#39;(&#39; &gt;
+        &lt;.typed_panic: &#39;X::Syntax::P5&#39;&gt; ]?
+    [ &lt;?before &#39;(&#39; &lt;.EXPR&gt;? &#39;;&#39; &lt;.EXPR&gt;? &#39;;&#39; &lt;.EXPR&gt;? &#39;)&#39; &gt;
+        <strong>&lt;.obs(&#39;C-style &quot;for (;;)&quot; loop&#39;, &#39;&quot;loop (;;)&quot;&#39;)&gt;</strong> ]?
+    &lt;xblock(1)&gt;
+}</pre>
+<p>Here, you also can see another type of error message regarding the Perl 5 syntax (see where the <tt>typed_panic</tt> method matches):</p>
+<pre>$ ./perl6 -e&#39;<strong>for my $x (@a)</strong> {}&#39;
+===SORRY!=== Error while compiling -e
+This appears to be Perl 5 code
+at -e:1
+------&gt; for ⏏my $x (@a) {}</pre>
+<p>Interestingly, this is the only place where the X::Syntax::P5 exception is used.</p>
+<p>That’s all for today, stay tuned for more error messages tomorrow! 🙂</p>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-103" href="https://perl6.online/2017/12/29/obsolete-syntax-warnings-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-103" href="https://perl6.online/2017/12/29/obsolete-syntax-warnings-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-103" href="https://perl6.online/2017/12/29/obsolete-syntax-warnings-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-103-5afe9db6edffa" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=103&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-103-5afe9db6edffa" id="like-post-wrapper-139853928-103-5afe9db6edffa"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

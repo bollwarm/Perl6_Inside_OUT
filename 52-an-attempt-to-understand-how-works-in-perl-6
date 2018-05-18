@@ -1,0 +1,83 @@
+
+		<p>Reduction operators are one of the many attractive features of Perl 6. A classical example is calculating factorial:</p>
+<pre>say [*] 1..5; <em># 120</em></pre>
+<p>It is remarkable that in the AST output (generated with the <tt>--target=ast</tt> command-line option) you do not see any cycles. There is the <tt>METAOP_REDUCE_LEFT</tt> call, and obviously, the rest is hidden on the deeper levels.</p>
+<pre>- QAST::Stmts 
+- QAST::WVal(Array) 
+- QAST::Stmts &lt;sunk&gt; say [*] 1..5
+    - QAST::Stmt &lt;sunk final&gt; say [*] 1..5
+    - QAST::Want &lt;sunk&gt;
+        - QAST::Op(call &amp;say) &lt;sunk&gt; :statement_id&lt;?&gt; say [*] 1..5
+        - QAST::Op(call) &lt;wanted&gt; [*] 1..5
+            - QAST::Op(<span style="color:#0000ff;">call &amp;METAOP_REDUCE_LEFT</span>) &lt;wanted&gt;
+            - QAST::Var(lexical &amp;infix:&lt;*&gt;) &lt;wanted&gt;
+            - QAST::Op(call &amp;infix:&lt;..&gt;) &lt;wanted&gt; ..
+            - QAST::Want &lt;wanted&gt; 1
+                - QAST::WVal(Int) 
+                - Ii
+                - QAST::IVal(1) 
+            - QAST::Want &lt;wanted&gt; 5
+                - QAST::WVal(Int) 
+                - Ii
+                - QAST::IVal(5)</pre>
+<p>Nevertheless, let us at least look at the Grammar and see how it handles the reduction operator.</p>
+<pre>regex term:sym&lt;reduce&gt; {
+    :my $*IN_REDUCE := 1;
+    :my $op;
+    &lt;?before &#39;[&#39;\S+&#39;]&#39;&gt;
+    &lt;!before &#39;[&#39; &lt;.[ - + ? ~ ^ ]&gt; &lt;.[ \w $ @ ]&gt; &gt; # disallow accidental prefix before termish thing
+
+    <strong><span style="color:#0000ff;">&#39;[&#39;</span></strong>
+    [
+    || &lt;op=.infixish(&#39;red&#39;)&gt; &lt;?[\]]&gt;
+    || $&lt;triangle&gt;=[\\]&lt;op=.infixish(&#39;tri&#39;)&gt; &lt;?[\]]&gt;
+    || &lt;!&gt;
+    ]
+    <span style="color:#0000ff;"><strong>&#39;]&#39;</strong></span>
+    { $op := $&lt;op&gt; }
+
+    &lt;.can_meta($op, &quot;reduce with&quot;)&gt;
+
+    [
+    || &lt;!{ $op&lt;OPER&gt;&lt;O&gt;.made&lt;diffy&gt; }&gt;
+    || &lt;?{ $op&lt;OPER&gt;&lt;O&gt;.made&lt;pasttype&gt; eq &#39;chain&#39; }&gt;
+    || { self.typed_panic: &quot;X::Syntax::CannotMeta&quot;, meta =&gt; &quot;reduce with&quot;, operator =&gt; ~$op&lt;OPER&gt;&lt;sym&gt;, dba =&gt; ~$op&lt;OPER&gt;&lt;O&gt;.made&lt;dba&gt;, reason =&gt; &#39;diffy and not chaining&#39; }
+    ]
+
+    { $*IN_REDUCE := 0 }
+    &lt;args&gt; 
+}</pre>
+<p>The regex needs a pair of square brackets (shown in blue) and an operator between them. The operator is saved in <tt>$&lt;op&gt;</tt> but also in the <tt>$op</tt> local variable: notice how you can use a colon to declare variables inside the regex rules.</p>
+<p>Then, the operator is checked if it can be reduced (<tt>.can_meta</tt>), and finally, some arguments are parsed. In our case, the <tt>&lt;args&gt;</tt> rule should match with <tt>1..5</tt>.</p>
+<p>What happens in-between with all those <tt>diffy</tt> and <tt>pasttype</tt>, is not clear for me. But notice how a dynamic variable <tt>$*IN_REDUCE</tt> is used as a flag so that inner rules understand that they are parsing something inside the reduction meta-operator.</p>
+<p>Further adventures of the reduction story are even less clear. Let us just take a brief look at the corresponding action (actually, to its first part):</p>
+<pre>method term:sym&lt;reduce&gt;($/) {
+    my $base := $&lt;op&gt;;
+    my $basepast := $base.ast
+        ?? $base.ast[0]
+        !! QAST::Var.new(:name(&quot;&amp;infix&quot; ~ $*W.canonicalize_pair(&#39;&#39;, $base&lt;OPER&gt;&lt;sym&gt;)),
+ :scope&lt;lexical&gt;);
+    my $metaop := baseop_reduce($base&lt;OPER&gt;&lt;O&gt;.made);
+    my $metapast := QAST::Op.new( :op&lt;call&gt;, :name($metaop), WANTED($basepast,&#39;reduce&#39;));
+    my $t := $basepast.ann(&#39;thunky&#39;) || $base&lt;OPER&gt;&lt;O&gt;.made&lt;thunky&gt;;
+    if $&lt;triangle&gt; {
+        $metapast.push($*W.add_constant(&#39;Int&#39;, &#39;int&#39;, 1));
+    }
+    my $args := $&lt;args&gt;.ast;
+    # one-arg rule?
+    if +$args.list == 1 &amp;&amp; !$args[0].flat &amp;&amp; !$args[0].named {
+        <span style="color:#0000ff;">make QAST::Op.new(:node($/),</span>
+<span style="color:#0000ff;">                          :op&lt;call&gt;,</span>
+<span style="color:#0000ff;">                          WANTED($metapast,&#39;reduce/meta&#39;),</span>
+<span style="color:#0000ff;">                          WANTED($args[0],&#39;reduce/meta&#39;));</span>
+    }
+
+    . . .
+
+}</pre>
+<p>Everything ends with generating an item in QAST.</p>
+<p>(By the way, did you know why the name starts with ‘Q’? Originally, it was PAST, short for Parrot AST. Then, a newer version of the tree appeared, and the next letter from the alphabet was used instead.)</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-510" href="https://perl6.online/2018/02/10/52-an-attempt-to-understand-how-works-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-510" href="https://perl6.online/2018/02/10/52-an-attempt-to-understand-how-works-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-510" href="https://perl6.online/2018/02/10/52-an-attempt-to-understand-how-works-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-510-5afe9d682939f" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=510&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-510-5afe9d682939f" id="like-post-wrapper-139853928-510-5afe9d682939f"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

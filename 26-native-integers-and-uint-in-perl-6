@@ -1,0 +1,71 @@
+
+		<p>As soon as we touched some native integers <a href="https://perl6.online/2018/01/14/24-the-range-method/">yesterday</a>, let us look a bit closer at them. The topic is deep, so we limit ourselves with a brief understanding of interconnections between the different integer data types in Perl 6.</p>
+<h2>UInt and UInt64</h2>
+<p>The simplest is UInt. This data type is defined in src/core/Int.pm and is literary a one-liner:</p>
+<pre>my subset UInt of Int where {not .defined or $_ &gt;= 0};</pre>
+<p>The <tt>where</tt> clause restricts the values to be non-negative. Thus, the range of a UInt variable is <tt>0..^Inf</tt>:</p>
+<pre>say UInt.Range; <em># 0..^Inf</em></pre>
+<p>There’s another type, UInt64. It is defined similarly but puts additional restriction to the value: it should not exceed 2⁶⁴.</p>
+<pre>my Int $UINT64_UPPER = nqp::pow_I(2, 64, Num, Int);
+subset UInt64 of Int where { 0 &lt;= $_ &lt; $UINT64_UPPER }</pre>
+<p>By the way, don’t forget that you can use superscripts in Perl 6 directly:</p>
+<pre>say 2⁶⁴; <em># <span class="s1">18446744073709551616</span></em></pre>
+<p>OK, let us confirm the borders of the UInt64 class by calling its Range method:</p>
+<pre>$ perl6 -e&#39;say UInt64.Range&#39;
+-Inf^..^Inf</pre>
+<p>This result is wrong (U stands for unsigned), but I am sure that if you follow my blog you know where to fix it. Of course, the problem sits in the <a href="https://perl6.online/2018/01/14/24-the-range-method/">Range method</a> that we were examining yesterday. Here is the fragment in src/core/Int.pm we need:</p>
+<pre>default { # some other kind of Int
+    .^name eq &#39;UInt&#39;
+        ?? Range.new( 0, Inf, :excludes-max )
+        !! Range.new( -Inf, Inf, :excludes-min, :excludes-max )
+}</pre>
+<p>Both UInt and UInt64 are the children of Int but only of the them is handled properly. Let us add the missing check like this, for example:</p>
+<pre>when .^name eq &#39;UInt&#39;   { Range.new(0, Inf, :excludes-max) }
+when .^name eq &#39;UInt64&#39; { Range.new(0, 2⁶⁴ - 1) }
+default                 { Range.new( -Inf, Inf, :excludes-min, :excludes-max) }</pre>
+<p>Compile and enjoy the result:</p>
+<pre>say Int.Range;    <em># -Inf^..^Inf</em>
+say UInt.Range;   <em># 0..^Inf</em>
+say UInt64.Range; <em># 0..18446744073709551615</em></pre>
+<p>This is fine but I am still not satisfied with a big chain of <tt>when</tt> tests. Would UInt and UInt64 be classes, not subsets, you could add individual Range methods to each of them.</p>
+<h2>Native ints</h2>
+<p>Another big cluster of integer type definitions can be found in src/core/natives.pm. Let me quote the big part of that file here:</p>
+<pre>my native   int is repr(&#39;P6int&#39;) is Int { }
+my native  int8 is repr(&#39;P6int&#39;) is Int is nativesize( 8) { }
+my native int16 is repr(&#39;P6int&#39;) is Int is nativesize(16) { }
+my native int32 is repr(&#39;P6int&#39;) is Int is nativesize(32) { }
+my native int64 is repr(&#39;P6int&#39;) is Int is nativesize(64) { }
+
+my native   uint is repr(&#39;P6int&#39;) is Int is unsigned { }
+my native  uint8 is repr(&#39;P6int&#39;) is Int is nativesize( 8) is unsigned { }
+my native   byte is repr(&#39;P6int&#39;) is Int is nativesize( 8) is unsigned { }
+my native uint16 is repr(&#39;P6int&#39;) is Int is nativesize(16) is unsigned { }
+my native uint32 is repr(&#39;P6int&#39;) is Int is nativesize(32) is unsigned { }
+my native uint64 is repr(&#39;P6int&#39;) is Int is nativesize(64) is unsigned { }</pre>
+<p>These native types are all <tt>Int</tt>s and are <tt>repr</tt>esented by P6int data type. If you dig into MoarVM, you will find a directory nqp/MoarVM/src/6model/reprs that contains many C and C header files, including P6int.c and P6int.h. A brief look tells us that this type is universally used for all the native types listed above:</p>
+<pre>/* Representation used by P6 native ints. */
+struct MVMP6intBody {
+    /* Integer storage slot. */
+    <strong>union</strong> <strong>{</strong>
+        MVMint64 i64;
+        MVMint32 i32;
+        MVMint16 i16;
+        MVMint8 i8;
+        MVMuint64 u64;
+        MVMuint32 u32;
+        MVMuint16 u16;
+        MVMuint8 u8;
+    <strong>}</strong> value;
+};</pre>
+<p>The <tt>is nativesize</tt> and <tt>is unsigned</tt> are the traits (src/core/traits.pm) that set some attributes of the NativeHOW object:</p>
+<pre>multi sub trait_mod:&lt;is&gt;(Mu:U $type, :$<strong>nativesize</strong>!) {
+    $type.^set_nativesize($nativesize);
+}
+multi sub trait_mod:&lt;is&gt;(Mu:U $type, :$<strong>unsigned</strong>!) {
+    $type.^set_unsigned($unsigned);
+}</pre>
+<p>And let’s make a break for today.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-323" href="https://perl6.online/2018/01/15/26-native-integers-and-uint-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-323" href="https://perl6.online/2018/01/15/26-native-integers-and-uint-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-323" href="https://perl6.online/2018/01/15/26-native-integers-and-uint-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-323-5afe9d972a9ef" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=323&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-323-5afe9d972a9ef" id="like-post-wrapper-139853928-323-5afe9d972a9ef"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

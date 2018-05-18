@@ -1,0 +1,71 @@
+
+		<p>Welcome to the 50<sup>th</sup> post in this series!</p>
+<p>Today, we’ll talk about a small syntax construction, which is nevertheless is quite complicated in terms of Grammar. Let us look at the whole <tt>colonpair</tt> token first:</p>
+<pre>token colonpair {
+    :my $*key;
+    :my $*value;
+
+    <strong><span style="color:#0000ff;">&#39;:&#39;</span></strong>
+    :dba(&#39;colon pair&#39;)
+    [
+<span style="color:#339966;">    | &#39;!&#39; [ &lt;identifier&gt; || &lt;.panic: &quot;Malformed False pair; expected identifier&quot;&gt; ]
+        [ &lt;[ \[ \( \&lt; \{ ]&gt; {
+        $/.typed_panic(&#39;X::Syntax::NegatedPair&#39;, key =&gt; ~$&lt;identifier&gt;) } ]?
+        { $*key := $&lt;identifier&gt;.Str; $*value := 0 }
+</span><span style="color:#3366ff;">    | $&lt;num&gt; = [\d+] &lt;identifier&gt; [ &lt;?before &lt;.[ \[ \( \&lt; \{ ]&gt;&gt; {} &lt;.sorry(&quot;Extra argument not allowed; pair already has argument of &quot; ~ $&lt;num&gt;.Str)&gt; &lt;.circumfix&gt; ]?
+       <span style="color:#999999;"> &lt;?{ </span>
+<span style="color:#999999;">            . . . # Some NQP things happen here, refer to the code if needed
+        }&gt;
+</span>        { $*key := $&lt;identifier&gt;.Str; $*value := nqp::radix_I(10, $&lt;num&gt;, 0, 0, $*W.find_symbol([&#39;Int&#39;]))[0]; }
+</span><span style="color:#800080;">    | &lt;identifier&gt;
+        { $*key := $&lt;identifier&gt;.Str; }
+        [
+        || &lt;.unsp&gt;? :dba(&#39;pair value&#39;) &lt;coloncircumfix($*key)&gt; { $*value := $&lt;coloncircumfix&gt;; }
+        || { $*value := 1; }
+        ]
+<span style="color:#ff9900;">    | :dba(&#39;signature&#39;) &#39;(&#39; ~ &#39;)&#39; &lt;fakesignature&gt;
+</span></span><span style="color:#0000ff;">    | &lt;coloncircumfix(&#39;&#39;)&gt;
+        { $*key := &quot;&quot;; $*value := $&lt;coloncircumfix&gt;; }</span>
+    <span style="color:#993300;">| &lt;var=.colonpair_variable&gt;
+        { $*key := $&lt;var&gt;&lt;desigilname&gt;.Str; $*value := $&lt;var&gt;; self.check_variable($*value); }</span>
+    ]
+}</pre>
+<p>The token always starts matching from a colon. Then, there are six main alternatives. Let us briefly come through the first half of them.</p>
+<p>Each branch ends with assignments to the two dynamic variables: <tt>$*key</tt> and <tt>$*value</tt>.</p>
+<h2>1</h2>
+<p>The first variant is used when you want to pass a False value as a named parameter, for example:</p>
+<pre>sub f($x, :$print = 1) {
+    say $x if $print;
+}
+
+f(3);          <em># 3</em>
+f(4, :!print); # nothing</pre>
+<p>This function prints its first parameter if you do not set the <tt>:$print</tt> named argument to a False value. In Perl 6, this can be done using the shortcut <tt>:!print</tt>. Thus, in the second call, the function prints nothing.</p>
+<h2>2</h2>
+<p>The second branch of the token is for a special form of passing numeric values. Examine the following code snippet:</p>
+<pre>sub g(:$value) {
+    say $value;
+}
+
+g(:10value); <em># 10</em></pre>
+<p>A function takes a named argument, and you can pass its value in a bit weird format: <tt>:10value</tt>, which means make the value of <tt>:$value</tt> equals <tt>10</tt>.</p>
+<h2>3</h2>
+<p>The third option is probably the most common way to use colon syntax. This branch is triggered in the following example:</p>
+<pre>sub g(:$value) {
+    say $value;
+}
+
+g(:value(10));<em> # 10</em></pre>
+<p>Here is the same function as in the previous section, but the value is passed differently.</p>
+<p>This option is also used when you need somewhat opposite to the first one. In this case, you use the named argument as a Boolean flag and set its value to <tt>True</tt>. The next example demonstrates that:</p>
+<pre>sub h(:$value) {
+    say $value;
+}
+
+h(:value); <em># True</em></pre>
+<p>Notice that this is False if you negate it with an exclamation mark (in that case, the first branch of the token works):</p>
+<pre>h(:!value); <em># False</em></pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-502" href="https://perl6.online/2018/02/08/50-colonpair-in-perl-6s-grammar-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-502" href="https://perl6.online/2018/02/08/50-colonpair-in-perl-6s-grammar-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-502" href="https://perl6.online/2018/02/08/50-colonpair-in-perl-6s-grammar-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-502-5afe9d6bc88a4" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=502&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-502-5afe9d6bc88a4" id="like-post-wrapper-139853928-502-5afe9d6bc88a4"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

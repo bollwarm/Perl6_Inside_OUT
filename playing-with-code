@@ -1,0 +1,59 @@
+
+		<p>Yesterday, we looked at the two methods of the Bool class that return strings. The string representation that the functions produce is hardcoded in the source code.</p>
+<p>Let’s use this observation and try changing the texts.</p>
+<p>So, here is the fragment that we will modify:</p>
+<pre>Bool.^add_multi_method(&#39;gist&#39;, my multi method gist(Bool:D:) {
+    self ?? &#39;True&#39; !! &#39;False&#39;
+});</pre>
+<p>This <tt>gist</tt> method is used to stringify a defined variable.</p>
+<p>To make things happen, you need to have the source codes of Rakudo on your computer so that you can compile them. Clone the project from GitHub first:</p>
+<pre>$ git clone https://github.com/rakudo/rakudo.git</pre>
+<p>Compile with MoarVM:</p>
+<pre class="p1"><span class="s1">$ cd rakudo
+$ perl Configure.pl --gen-moar --gen-nqp --backends=moar
+$ make</span></pre>
+<p>Having that done, you get the <tt>perl6</tt> executable in the <tt>rakudo</tt> directory.</p>
+<p>Now, open the src/core/Bool.pm file and change the strings of the <tt>gist</tt> method to use the Unicode thumbs instead of plain text:</p>
+<pre>Bool.^add_multi_method(&#39;gist&#39;, my multi method gist(Bool:D:) {
+    self ?? &#39;👍&#39; !! &#39;👎&#39;
+});</pre>
+<p>After saving the file, you need to recompile Rakudo. Bool.pm is in the list of files to be compiled in Makefile:</p>
+<pre>M_CORE_SOURCES = \
+    src/core/core_prologue.pm\
+    src/core/traits.pm\
+    src/core/Positional.pm\
+    . . .
+    src/core/Bool.pm\
+    . . .</pre>
+<p>Run <tt>make</tt> and get the updated <tt>perl6</tt>. Run it and enjoy the result:</p>
+<pre>:~/rakudo$ ./perl6
+To exit type &#39;exit&#39; or &#39;^D&#39;
+&gt; my Bool $b = True;
+👍
+&gt; $b = !$b; 
+👎
+&gt;</pre>
+<p>As an exercise, let us improve your local Perl 6 by adding the <tt>gist</tt> method for undefined values. By default, it does not exist, and <a href="https://perl6.online/2017/12/22/bool-1/">we saw that yesterday</a>. It means that an attempt to interpolate an undefined variable in a string will be rejected. Let’s make it better.</p>
+<p>Interpolation uses the <tt>Str</tt> method. It is similar to both <tt>gist</tt> and <tt>perl</tt>, so you will have no difficulties in creating the new version.</p>
+<p>This is what currently is in Perl 6:</p>
+<pre>Bool.^add_multi_method(&#39;Str&#39;, my multi method Str(Bool:<strong>D</strong>:) {
+    self ?? &#39;True&#39; !! &#39;False&#39;
+});</pre>
+<p>This is what you need to add:</p>
+<pre>Bool.^add_multi_method(&#39;Str&#39;, my multi method Str(Bool:<strong>U</strong>:) {
+    &#39;¯\_(ツ)_/¯&#39;
+});</pre>
+<p>Notice that <tt>self</tt> is not needed (and cannot be used) in the second variant.</p>
+<p>Compile and run <tt>perl6</tt>:</p>
+<pre>$ ./perl6
+To exit type &#39;exit&#39; or &#39;^D&#39;
+&gt; my Bool $b;
+(Bool)
+&gt; &quot;Here is my variable: $b&quot;
+Here is my variable: ¯\_(ツ)_/¯
+&gt;</pre>
+<p>It works as expected. Congratulations, you’ve just changed the behaviour of Perl 6 yourself!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-72" href="https://perl6.online/2017/12/23/playing-with-code/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-72" href="https://perl6.online/2017/12/23/playing-with-code/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-72" href="https://perl6.online/2017/12/23/playing-with-code/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-72-5afe9dc16d418" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=72&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-72-5afe9dc16d418" id="like-post-wrapper-139853928-72-5afe9dc16d418"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,61 @@
+
+		<p>Today, we continue our initial exploration of the <tt>Real</tt> role, that was started <a href="https://perl6.online/2018/02/15/57-examining-the-real-role-of-perl-6-part-1/">a couple of days ago</a>.</p>
+<p>Together with its methods, the role contains a number of subroutines (placed outside the role) that define the infix operators with the objects of the <tt>Real</tt> type. The list is not that long, so let me copy it here:</p>
+<pre>multi sub infix:&lt;+&gt;(Real \a, Real \b) { a.Bridge + b.Bridge }
+multi sub infix:&lt;-&gt;(Real \a, Real \b) { a.Bridge - b.Bridge }
+multi sub infix:&lt;*&gt;(Real \a, Real \b) { a.Bridge * b.Bridge }
+multi sub infix:&lt;/&gt;(Real \a, Real \b) { a.Bridge / b.Bridge }
+multi sub infix:&lt;%&gt;(Real \a, Real \b) { a.Bridge % b.Bridge }
+multi sub infix:&lt;**&gt;(Real \a, Real \b) { a.Bridge ** b.Bridge }
+multi sub infix:«&lt;=&gt;»(Real \a, Real \b) { a.Bridge &lt;=&gt; b.Bridge }
+multi sub infix:&lt;==&gt;(Real \a, Real \b) { a.Bridge == b.Bridge }
+multi sub infix:«&lt;»(Real \a, Real \b) { a.Bridge &lt; b.Bridge }
+multi sub infix:«&lt;=»(Real \a, Real \b) { a.Bridge &lt;= b.Bridge }
+multi sub infix:«≤» (Real \a, Real \b) { a.Bridge ≤ b.Bridge }
+multi sub infix:«&gt;»(Real \a, Real \b) { a.Bridge &gt; b.Bridge }
+multi sub infix:«&gt;=»(Real \a, Real \b) { a.Bridge &gt;= b.Bridge }
+multi sub infix:«≥» (Real \a, Real \b) { a.Bridge ≥ b.Bridge }
+
+proto sub infix:&lt;mod&gt;($, $) is pure {*}
+multi sub infix:&lt;mod&gt;(Real $a, Real $b) {
+    $a - ($a div $b) * $b;
+}</pre>
+<p>As you see, most of the operators are using <a href="https://perl6.online/2018/02/11/53-going-over-the-bridge-part-1/">the <tt>Bridge</tt> method</a>, which allows using the same code in derived classes that may redefine the bridge.</p>
+<p>There’s also one prefix operation for negation:</p>
+<pre>multi sub prefix:&lt;-&gt;(Real:D \a) { -a.Bridge }</pre>
+<p>The <tt>cis</tt> function works as a type converter returning a complex number:</p>
+<pre>roto sub cis($) {*}
+multi sub cis(Real $a) { $a.cis }</pre>
+<p>Try it out:</p>
+<pre>&gt; cis(pi)
+-1+1.22464679914735e-16i
+
+&gt; cis(pi).WHAT
+(Complex)</pre>
+<p>A bit outstanding, there is a function for <tt>atan2</tt>:</p>
+<pre>proto sub atan2($, $?) {*}
+multi sub atan2(Real \a, Real \b = 1e0) { a.Bridge.atan2(b.Bridge) }
+# should really be (Cool, Cool), and then (Cool, Real) and (Real, Cool)
+# candidates, but since Int both conforms to Cool and Real, we&#39;d get lots
+# of ambiguous dispatches. So just go with (Any, Any) for now.
+multi sub atan2( \a, \b = 1e0) { a.Numeric.atan2(b.Numeric) }</pre>
+<p>It is a bit strange as it does not follow the manner in which other trigonometric functions are implemented. The <tt>atan2</tt> routine is also defined as a method:</p>
+<pre>proto method atan2(|) {*}
+multi method atan2(Real $x = 1e0) { self.Bridge.atan2($x.Bridge) }
+multi method atan2(Cool $x = 1e0) { self.Bridge.atan2($x.Numeric.Bridge) }</pre>
+<p>All other trigonometric functions only exist as <tt>Real</tt> methods. The rest is defined inside the src/core/Numeric.pm file as self-standing subroutines, for example:</p>
+<pre>proto sub cos($) is pure {*}
+multi sub cos(Numeric \x) { x.cos }
+multi sub cos(Cool \x) { x.Numeric.cos }
+
+. . .
+
+proto sub atan($) is pure {*}
+multi sub atan(Numeric \x) { x.atan }
+multi sub atan(Cool \x) { x.Numeric.atan }</pre>
+<p>There are a few more routines but let us skip them, as they are quite straightforward and clear.</p>
+<p>In the next part, we will explore the two methods of the <tt>Real</tt> role: <tt>polymod</tt> and <tt>base</tt>. Stay tuned!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-543" href="https://perl6.online/2018/02/18/59-examining-the-real-role-of-perl-6-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-543" href="https://perl6.online/2018/02/18/59-examining-the-real-role-of-perl-6-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-543" href="https://perl6.online/2018/02/18/59-examining-the-real-role-of-perl-6-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-543-5afe9d57e70a0" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=543&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-543-5afe9d57e70a0" id="like-post-wrapper-139853928-543-5afe9d57e70a0"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

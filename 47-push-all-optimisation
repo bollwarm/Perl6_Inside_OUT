@@ -1,0 +1,58 @@
+
+		<p>Last evening, I made a <a href="https://github.com/rakudo/rakudo/commit/65d6fe48033a31a02dfee7b0cfbc6cf4c08af2d2">commit</a> based on my recent observation. Let me devote today’s post to that.</p>
+<p>In the last few days, we were talking about the two methods for getting random elements from a list — <tt>pick</tt> and <tt>roll</tt>. When you pass an integer to the methods, both of them internally use an instance of the class implementing the Iterator role. Depending on the situation, either <tt>pull-one</tt> or <tt>push-all</tt> method is called on that object.</p>
+<p>Just as a reminder, here’s the skeleton of the two methods from src/core/List.pm (the samples are not working code):</p>
+<pre>multi method roll(\number) {
+    Seq.new(class :: does Iterator {
+        <strong>method</strong> <strong>pull-one()</strong> is raw {
+        }
+    }.new(self,number.Int))
+}
+
+
+multi method pick(List:D: $number is copy) {
+    Seq.new(class :: does Iterator {
+        <strong>method</strong> <strong>pull-one()</strong> {
+        }
+        <strong>method</strong> <strong>push-all($target)</strong> {
+        }
+    }.new(self,$elems,$number))
+}</pre>
+<p>The problem is that in the case of <tt>roll</tt>, Rakudo calls <tt>pull-one</tt> for each element of the list, while in the case of <tt>pick</tt>, it just gets the whole list at one go.</p>
+<p>In this program, both methods are using <tt>pull-one</tt>:</p>
+<pre>say &lt;a b c d e&gt;.roll(4);
+say &lt;a b c d e&gt;.pick(4);</pre>
+<p>Although if you change it, only <tt>pick</tt> switches to <tt>push-one</tt>, while <tt>roll</tt> makes as many <tt>pull-one</tt> calls as you need to fetch all the requested elements individually:</p>
+<pre>my @r = &lt;a b c d e&gt;.roll(4);
+say @r;
+
+my @p = &lt;a b c d e&gt;.pick(4);
+say @p;</pre>
+<p>What I did, I added the <tt>push-all</tt> method to the <tt>roll</tt> method:</p>
+<pre>method push-all($target --&gt; IterationEnd) {
+    nqp::while(
+        $!todo,
+        nqp::stmts(
+            ($target.push(nqp::atpos($!list,$!elems.rand.floor))),
+            ($!todo = $!todo - 1)
+        )
+    )
+}</pre>
+<p>Now, in the above example, <tt>pick</tt> is also using the <tt>push-all</tt> method.</p>
+<p>Compare the speed of the program before and after the change:</p>
+<pre>$ time ./perl6 -e&#39;my @a = &quot;a&quot;..&quot;z&quot;; for ^500_000 {my @b = @a.roll(20)}&#39;
+real	0m26.321s
+user	<strong>0m26.010s</strong>
+sys	0m0.163s
+
+
+$ time ./perl6 -e&#39;my @a = &quot;a&quot;..&quot;z&quot;; for ^500_000 {my @b = @a.roll(20)}&#39;
+real	0m20.829s
+user	<strong>0m20.701s</strong>
+sys	0m0.130s</pre>
+<p>With the given data, it works 20% faster. Add some more code and gain some speed 🙂</p>
+<p>P. S. Also read <a href="https://perl6.party/post/Perl-6-Seqs-Drugs-and-Rock-n-Roll--Part-2#pushitrealgood...">Zoffix’s post</a> (or its part) in the Rakudo.party blog with more information about the <tt>push-all</tt> method.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-485" href="https://perl6.online/2018/02/05/47-push-all-optimisation/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-485" href="https://perl6.online/2018/02/05/47-push-all-optimisation/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-485" href="https://perl6.online/2018/02/05/47-push-all-optimisation/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-485-5afe9d6fedf50" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=485&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-485-5afe9d6fedf50" id="like-post-wrapper-139853928-485-5afe9d6fedf50"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

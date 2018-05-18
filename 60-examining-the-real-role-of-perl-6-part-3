@@ -1,0 +1,88 @@
+
+		<p>As promised <a href="https://perl6.online/2018/02/18/59-examining-the-real-role-of-perl-6-part-2/">yesterday</a>, let us take a look at the two methods of the <tt>Real</tt> role: <tt>polymod</tt> and <tt>base</tt>.</p>
+<h2>polymod</h2>
+<p>I already devoted a post to the <tt><a href="https://perl6.online/2018/02/16/58-a-word-on-polymod-in-perl-6/">Int.polymod</a></tt> method, but the method also exists in the <tt>Real</tt> role. Let us see if it is different.</p>
+<pre>method polymod(Real:D: +@mods) {
+    my $more = self;
+    my $lazy = @mods.is-lazy;
+    fail X::OutOfRange.new(
+        :what(&#39;invocant to polymod&#39;), :got($more), :range&lt;0..Inf&gt;
+    ) if $more &lt; 0; 
+    gather { 
+        for @mods -&gt; $mod {
+            last if $lazy and not $more;
+            Failure.new(X::Numeric::DivideByZero.new:
+                using =&gt; &#39;polymod&#39;, numerator =&gt; $more
+            ) unless $mod;
+            take my $rem = $more % $mod;
+            $more -= $rem;
+            $more /= $mod;
+        }
+        take $more if ($lazy and $more) or not $lazy;
+    }
+}</pre>
+<p>It looks familiar. Comparing to the method of <tt>Int</tt>, the separation of lazy and non-lazy lists is incorporated in the main loop. In the rest, it is again the <tt>mod</tt> operation (in the form of <tt>%</tt>) and a division (and some additional subtraction).</p>
+<p>Try the method on the same 120 (but as a <tt>Numeric</tt> value):</p>
+<pre>&gt; say 120.polymod(10,10)
+(0 2 1)
+
+&gt; say 120e0.polymod(10,10)
+(0 2 1)</pre>
+<p>The first method is a call of <tt>Int.polymod</tt>, while the second one is <tt>Real.polymod</tt>. The results are the same.</p>
+<p>A final note on the method. Just notice that it also works with non-integer values:</p>
+<pre>&gt; 120.34.polymod(3.3, 4.4)
+(1.54 0.8 8)</pre>
+<p>Indeed, 1.54 + 0.8 * 3.3 + 8 * 3.3 * 4.4 = 120.34.</p>
+<h2>base</h2>
+<p>The <tt>base</tt> method converts a number to its representation in a different system, e. g., hexadecimal, octal, or in a system with 5 or 35 digits. Extrapolating hexadecimal system, you may guess that if there are 36 digits, then the digits are 0 to 9 and A to Z.</p>
+<p>A few examples with the numbers with a floating point (actually, <tt>Rat</tt> numbers here):</p>
+<pre>&gt; 120.34.base(10)
+120.34
+&gt; 120.34.base(36)
+3C.C8N1FU
+&gt; 120.34.base(3)
+11110.100012
+&gt; 120.34.base(5)
+440.132223</pre>
+<p>The fractional part is converted separately. The second argument of the method limits the number of digits in it. Compare:</p>
+<pre>&gt; 120.34.base(5)
+440.132223
+&gt; 120.34.base(5, 2)
+440.14</pre>
+<p>I will skip the details of the method internals and will only show the most interesting parts.</p>
+<p>The signature of the method in the src/core/Real.pm file is the following:</p>
+<pre> method base(Int:D $base, $digits? is copy)</pre>
+<p>The <a href="https://docs.perl6.org/routine/base">documentation</a> interprets that quite differently (although correct semantically):</p>
+<pre>method base(Real:D: Int:D $base where 2..36, $digits? --&gt; Str:D)</pre>
+<p>The possible digits are listed explicitly (not in ranges):</p>
+<pre>my @conversion := &lt;0 1 2 3 4 5 6 7 8 9
+                   A B C D E F G H I J
+                   K L M N O P Q R S T
+                   U V W X Y Z&gt;;</pre>
+<p>Finally, the last gathering of the separate digits into a resulting string is done like that, using a call to the <tt>Int.base</tt> method:</p>
+<pre>my Str $r = $int_part.base($base);
+$r ~= &#39;.&#39; ~ <strong>@conversion</strong>[@frac_digits].join if @frac_digits;
+# if $int_part is 0, $int_part.base doesn&#39;t see the sign of self
+$int_part == 0 &amp;&amp; self &lt; 0 ?? &#39;-&#39; ~ $r !! $r;</pre>
+<p>The method also does some heuristics to determine the number of digits after the floating point:</p>
+<pre>my $prec = $digits // 1e8.log($base.Num).Int;
+. . .
+for ^$prec {
+    last unless $digits // $frac;
+    $frac = $frac * $base;
+    push @frac_digits, $frac.Int;
+    $frac = $frac - $frac.Int;
+}</pre>
+<p>Compare now the method with the same method from the <tt>Int</tt> class:</p>
+<pre>multi method base(Int:D: Int:D $base) {
+    2 &lt;= $base &lt;= 36
+        ?? nqp::p6box_s(<strong>nqp::base_I(self,nqp::unbox_i($base))</strong>)
+        !! Failure.new(X::OutOfRange.new(
+            what =&gt; &quot;base argument to base&quot;, :got($base), :range&lt;2..36&gt;))
+}</pre>
+<p>In this case, all the hard work is delegated to the <tt>base_I</tt> function of NQP.</p>
+<p>And that’s more or less all that I wanted to cover from the <tt>Real</tt> role internals.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-546" href="https://perl6.online/2018/02/18/60-examining-the-real-role-of-perl-6-part-3/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-546" href="https://perl6.online/2018/02/18/60-examining-the-real-role-of-perl-6-part-3/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-546" href="https://perl6.online/2018/02/18/60-examining-the-real-role-of-perl-6-part-3/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-546-5afe9d5618696" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=546&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-546-5afe9d5618696" id="like-post-wrapper-139853928-546-5afe9d5618696"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

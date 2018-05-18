@@ -1,0 +1,70 @@
+
+		<p>One of the additional user-friendly features of Perl 6 is its great error reporting. It is not a mandatory part of the language grammar or semantics, but it really helps a developer to fix the errors in the code.</p>
+<p>Run the following program:</p>
+<pre>$ perl6 -e&#39;my $var1; say $var2&#39;</pre>
+<p>It leads to a compile-time error:</p>
+<pre>===SORRY!=== Error while compiling -e
+<strong>Variable &#39;$var2&#39; is not declared. Did you mean &#39;$var1&#39;?</strong>
+at -e:1
+------&gt; my $var1; say ⏏$var2</pre>
+<p>Not only Perl 6 says that there is no such variable but it also suggests a correct candidate.</p>
+<p>The smartness does not stop here. Rakudo Perl 6 offers you more variants if it sees other options:</p>
+<pre>$ perl6 -e&#39;my $var1; my $var2; say $var3&#39;
+===SORRY!=== Error while compiling -e
+<strong>Variable &#39;$var3&#39; is not declared. Did you mean any of these?</strong>
+<strong>    $var2</strong>
+<strong>    $var1</strong>
+
+at -e:1
+------&gt; my $var1; my $var2; say ⏏$var3</pre>
+<p>Let us see how Perl 6 gets an idea of how to correct our typo. The exception is easy to spot:</p>
+<pre>my class X::Undeclared does X::Comp {
+    has $.what = &#39;Variable&#39;;
+    has $.symbol;
+    has @.suggestions;
+    method message() {
+        my $message := &quot;$.what &#39;$.symbol&#39; is not declared&quot;;
+        if +@.suggestions == 1 {
+            $message := &quot;$message. Did you mean &#39;@.suggestions[0]&#39;?&quot;;
+        } elsif +@.suggestions &gt; 1 {
+            $message := &quot;$message. Did you mean any of these?\n { @.suggestions.join(&quot;\n &quot;) }\n&quot;;
+        }
+        $message;
+    }
+}</pre>
+<p>First of all, we see both cases there: when there are only one or more suggestions. They come from the <tt>@.suggestions</tt> attribute. The error <tt>$message</tt> is formed accordingly. By the way, notice how a code block is interpolated in the double-quoted string:</p>
+<pre>&quot; . . . <strong>{ @.suggestions.join(&quot;\n &quot;) }</strong>\n&quot;;</pre>
+<p>The X::Undeclared class is only a part of the whole family of exceptions:</p>
+<pre>my class X::Attribute::Undeclared is X::Undeclared
+my class X::Attribute::Regex is X::Undeclared 
+my class X::Undeclared::Symbols does X::Comp</pre>
+<p>For the unknown variable, the exception is thrown from the <tt>check_variable</tt> method in the Grammar. I will not copy it here as the method is quite big and will only show the relevant lines so that you can see the picture:</p>
+<pre>method check_variable($var) {
+    my $varast := $var.ast;
+    . . .
+    my $name := $varast.name;
+    . . .
+    my @suggestions := $*W.suggest_lexicals($name);
+    . . .
+    $*W.throw($var, [&#39;X&#39;, &#39;Undeclared&#39;], 
+              symbol =&gt; $name,
+              suggestions =&gt; @suggestions,
+              precursor =&gt; &#39;1&#39;);
+    . . .
+    self
+}</pre>
+<p>So, an exception is thrown for the missing symbol <tt>$name</tt> with one ore more <tt>@suggestions</tt>.</p>
+<p>Now move on to the <tt>suggest_lexicals</tt> method that finds similar names. The <tt>$*W</tt> variable is Rakudo Perl 6’s <em>World</em> object, so search for it in the src/Perl6/World.nqp file:</p>
+<pre>method suggest_lexicals($name) {
+    my @suggestions;
+    my @candidates := [[], [], []];
+    my &amp;inner-evaluator := <strong>make_levenshtein_evaluator</strong>($name, @candidates);
+    . . .
+    <strong>levenshtein_candidate_heuristic</strong>(@candidates, @suggestions);
+    return @suggestions;
+}</pre>
+<p>Once again, only the most significant code is shown. As you might guess, Rakudo is using the <a href="https://en.wikipedia.org/wiki/Levenshtein_distance">Levenshtein distance</a> to find the closest matches. Roughly speaking, it counts how many letters you need to replace in a word A to get another word B. The bigger the distance, the less similar are the words.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-458" href="https://perl6.online/2018/02/01/43-variable-y-not-declared-did-you-mean-x/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-458" href="https://perl6.online/2018/02/01/43-variable-y-not-declared-did-you-mean-x/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-458" href="https://perl6.online/2018/02/01/43-variable-y-not-declared-did-you-mean-x/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-458-5afe9d73bb571" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=458&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-458-5afe9d73bb571" id="like-post-wrapper-139853928-458-5afe9d73bb571"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

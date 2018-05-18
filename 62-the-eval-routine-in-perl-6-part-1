@@ -1,0 +1,56 @@
+
+		<p>The <tt>EVAL</tt> routine in Perl 6 compiles and executes the code that it gets as an argument.  Today, we will see some potential use cases that you may try in your practice. Tomorrow, we will dig into Rakudo sources to see how it works and why it breaks sometimes.</p>
+<h2>1</h2>
+<p>Let us start with evaluating a simple program:</p>
+<pre>EVAL(&#39;say 123&#39;);</pre>
+<p>This program prints <tt>123</tt>, there’s no surprise here.</p>
+<h2>2</h2>
+<p>There are, though, more complicated cases. What, do you think, does the following program print?</p>
+<pre>EVAL(&#39;say {456}&#39;);</pre>
+<p>I guess it prints not what you expected:</p>
+<pre>-&gt; ;; $_? is raw { #`(Block|140570649867712) ... }</pre>
+<p>It parses the content between the curly braces as a pointy block.</p>
+<h2>3</h2>
+<p>What if you try double quotes?</p>
+<pre>EVAL(&quot;say {789}&quot;);</pre>
+<p>Now it even refuses to compile:</p>
+<pre>===SORRY!=== Error while compiling eval.pl
+EVAL is a very dangerous function!!! (use the MONKEY-SEE-NO-EVAL pragma to override this error,
+but only if you&#39;re VERY sure your data contains no injection attacks)
+at eval.pl:6
+------&gt; EVAL(&quot;say {789}&quot;)⏏;</pre>
+<h2>4</h2>
+<p>We can fix the code by adding a few magic words:</p>
+<pre>use MONKEY-SEE-NO-EVAL;
+
+EVAL(&quot;say {789}&quot;);</pre>
+<p>This time, it prints <tt>789</tt>.</p>
+<h2>5</h2>
+<p>The code is executed (we don’t know yet when exactly, that is the topic of tomorrow’s post), so you can make some calculations, for example:</p>
+<pre>use MONKEY-SEE-NO-EVAL;
+
+EVAL(&quot;say {7 / 8 + 9}&quot;); <em># 9.875</em></pre>
+<h2>6</h2>
+<p>Finally, if you try passing a code block directly, you also cannot achieve the goal, even with a blind monkey:</p>
+<pre>use MONKEY-SEE-NO-EVAL;
+
+EVAL {say 123};</pre>
+<p>The error happens at runtime:</p>
+<pre>Constraint type check failed in binding to parameter &#39;$code&#39;;
+expected anonymous constraint to be met but got 
+-&gt; ;; $_? is raw { #`...
+  in block &lt;unit&gt; at eval.pl line 10</pre>
+<p>This message looks cryptic, but at least we see once again that we got an anonymous pointy block passed to the function.</p>
+<h2>7</h2>
+<p>And before we wrap up for today, an attempt to use Perl 5 syntax:</p>
+<pre>eval(&#39;say 42&#39;);</pre>
+<p>There is no such function in Perl 6, and we get a standard error message:</p>
+<pre>===SORRY!=== Error while compiling eval2.pl
+Undeclared routine:
+  eval used at line 5. Did you mean &#39;EVAL&#39;, &#39;val&#39;?</pre>
+<p>It looks OK but it can be better.</p>
+<p>Stay tuned, tomorrow we will try to understand how all these examples work in Rakudo.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-553" href="https://perl6.online/2018/02/20/62-the-eval-routine-in-perl-6-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-553" href="https://perl6.online/2018/02/20/62-the-eval-routine-in-perl-6-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-553" href="https://perl6.online/2018/02/20/62-the-eval-routine-in-perl-6-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-553-5afe9d52cb45f" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=553&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-553-5afe9d52cb45f" id="like-post-wrapper-139853928-553-5afe9d52cb45f"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

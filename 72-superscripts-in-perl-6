@@ -1,0 +1,83 @@
+
+		<p>In Perl 6, you can use superscript indices to calculate powers of numbers, for example:</p>
+<pre>&gt; 2⁵
+32
+
+&gt; 7³
+343</pre>
+<p>It also works with more than one digit in the superscript:</p>
+<pre>&gt; 10¹²
+1000000000000</pre>
+<p>You can guess that the above cases are equivalent to the following:</p>
+<pre>&gt; 2**5
+32
+&gt; 7**3
+343
+
+&gt; 10**12
+1000000000000</pre>
+<p>But the question is: How on Earth does it work? Let us find it out.</p>
+<p>For the <tt>Numeric</tt> role, the following operation is defined:</p>
+<div>
+<pre>proto sub postfix:&lt;ⁿ&gt;(Mu $, Mu $) is pure {*}
+multi sub postfix:&lt;ⁿ&gt;(\a, \b) { a ** b }</pre>
+<p>Aha, that is what we need, and the superscript notation is converted to the simple <tt>**</tt> operator here.</p>
+<p>You can visualise what exactly is passed to the operation by printing the operands:</p>
+<pre>multi sub postfix:&lt;ⁿ&gt;(\a, \b) { 
+<strong>    nqp::say(&#39;# a = &#39; ~ a);</strong>
+<strong>    nqp::say(&#39;# b = &#39; ~ b);</strong>
+    a ** b 
+}</pre>
+<p>In this case, you’ll see the following output for the test examples above:</p>
+<pre>&gt; 2⁵
+# a = 2
+# b = 5
+
+&gt; 10¹²
+# a = 10
+# b = 12</pre>
+<p>Now, it is time to understand how the postfix that extracts superscripts works. Its name, <tt>ⁿ</tt>, written in superscript, should not mislead you. This is not a magic trick of the parser, this is just a name of the symbol, and it can be found in the Grammar:</p>
+<pre>token postfix:sym&lt;ⁿ&gt; {
+    &lt;sign=[⁻⁺¯]&gt;? &lt;dig=[⁰¹²³⁴⁵⁶⁷⁸⁹]&gt;+ &lt;O(|%autoincrement)&gt;
+}</pre>
+<p>You see, this symbol is a sequence of superscripted digits with an optional sign before them. (Did you think of a sign before we reached this moment in the Grammar?)</p>
+<p>Let us try negative powers, by the way:</p>
+<pre>&gt; say 4⁻³
+# a = 4
+# b = -3
+0.015625</pre>
+<p>Also notice that the whole construct is treated as a postfix operator. It can also be applied to variables, for example:</p>
+<pre>&gt; my $x = 9
+9
+&gt; say $x²
+# a = 9
+# b = 2
+81</pre>
+<p>So, a digit in superscript is not a part of the variable’s name.</p>
+<p>OK, the final part of the trilogy, the code in Actions, which parses the index:</p>
+<pre>method postfix:sym&lt;ⁿ&gt;($/) {
+    my $Int := $*W.find_symbol([&#39;Int&#39;]);
+    my $power := nqp::box_i(0, $Int);
+    <strong>for $&lt;dig&gt; {</strong>
+<strong>        $power := nqp::add_I(</strong>
+<strong>           nqp::mul_I($power, nqp::box_i(10, $Int), $Int),</strong>
+<strong>           nqp::box_i(nqp::index(&quot;⁰¹²³⁴⁵⁶⁷⁸⁹&quot;, $_), $Int),</strong>
+<strong>           $Int);</strong>
+<strong>    }</strong>
+
+    $power := nqp::neg_I($power, $Int) 
+        if $&lt;sign&gt; eq &#39;⁻&#39; || $&lt;sign&gt; eq &#39;¯&#39;;
+    make QAST::Op.new(:op&lt;call&gt;, :name(&#39;&amp;postfix:&lt;ⁿ&gt;&#39;), 
+                      $*W.add_numeric_constant($/, &#39;Int&#39;, $power));
+}</pre>
+<p>As you can see here, it scans the digits and updates the <tt>$power</tt> variable by adding the value at the next decimal position (it is selected in the code above).</p>
+<p>The available characters are listed in a string, and to get its value, the offset in the string is used. The <tt>$&lt;dig&gt;</tt> match contains a digit, you can see it in the Grammar:</p>
+<div>
+<pre>&lt;dig=[⁰¹²³⁴⁵⁶⁷⁸⁹]&gt;+</pre>
+<p> </p>
+</div>
+</div>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-705" href="https://perl6.online/2018/04/05/72-superscripts-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-705" href="https://perl6.online/2018/04/05/72-superscripts-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-705" href="https://perl6.online/2018/04/05/72-superscripts-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-705-5afe9d3b1b7da" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=705&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-705-5afe9d3b1b7da" id="like-post-wrapper-139853928-705-5afe9d3b1b7da"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

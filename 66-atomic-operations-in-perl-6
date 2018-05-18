@@ -1,0 +1,59 @@
+
+		<p>N. B. The examples below require a fresh Rakudo compiler, at least of the version 2017.09.</p>
+<p>Discussing parallel computing earlier or later leads to solving race conditions. Let us look at a simple counter that is incremented by two parallel threads:</p>
+<pre>my $c = 0;
+
+await do for 1..10 {
+    start {
+        $c++ for 1 .. 1_000_000
+    }
+}
+
+say $c;</pre>
+<p>If you run the program a few times, you will immediately see that the results are very different:</p>
+<pre>$ perl6 atomic-1.pl 
+3141187
+$ perl6 atomic-1.pl 
+3211980
+$ perl6 atomic-1.pl 
+3174944
+$ perl6 atomic-1.pl 
+3271573</pre>
+<p>Of course, the idea was to increase the counter by 1 million in all of the ten threads, but about ⅓ of the steps were lost. It is quite easy to understand why that happens: the parallel threads read the variable and write to it ignoring the presence of other threads and not thinking that the value can be changed in-between. Thus, some of the threads work with an outdated value of the counter.</p>
+<p>Perl 6 offers a solution: atomic operations. The syntax of the language is equipped with the <em>Atom Symbol</em> (U+0x269B) ⚛ character (no idea of why it is displayed in that purple colour). Instead of <tt>$c++</tt>, you should type <tt>$c⚛++</tt>.</p>
+<pre>my <strong>atomicint</strong> $c = 0;
+
+await do for 1..10 {
+    start {
+        $c⚛++ for 1 .. 1_000_000
+    }
+}
+
+say $c;</pre>
+<p>And before thinking of the necessity to use a Unicode character, let us look at the result of the updated program:</p>
+<pre>$ perl6 atomic-2.pl 
+10000000</pre>
+<p>This is exactly the result we wanted!</p>
+<p>Notice also, that the variable is declared as a variable of the <tt>atomicint</tt> type. That is a synonym for <tt>int</tt>, which is a <a href="https://perl6.online/2018/01/15/26-native-integers-and-uint-in-perl-6/"><em>native</em> integer</a> (unlike <tt>Int</tt>, which is a data type represented by a Perl 6 class).</p>
+<p>It is not possible to ask a regular value to be atomic. That attempt will be rejected by the compiler:</p>
+<pre>$ perl6 -e&#39;my $c; $c⚛++&#39;
+Expected a modifiable native int argument for &#39;$target&#39;
+  in block  at -e line 1</pre>
+<p>A few other operators can be atomic, for example, prefix and postfix increments and decrements <tt>++</tt> and <tt>--</tt>, or <tt>+=</tt> and <tt>-=</tt>. There are also atomic versions of the assignment operator <tt>=</tt> and the one for reading: ⚛ <em>(sic!)</em>.</p>
+<p>If you need atomic operations in your code, you are not forced to use the ⚛ character. There exists a bunch of alternative functions that you can use instead of the operators:</p>
+<pre>my atomicint $c = 1;
+
+my $x = ⚛$c;  $x = atomic-fetch($c);
+$c ⚛= $x;     atomic-assign($c, $x);
+$c⚛++;        atomic-fetch-inc($c);
+$c⚛--;        atomic-fetch-dec($c);
+++⚛$c;        atomic-inc-fetch($c);
+--⚛$c;        atomic-dec-fetch($c);
+$c ⚛+= $x;    atomic-fetch-add($c,$x);
+
+say $x; <em># 1</em>
+say $c; <em># 3</em></pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-657" href="https://perl6.online/2018/03/01/66-atomic-operations-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-657" href="https://perl6.online/2018/03/01/66-atomic-operations-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-657" href="https://perl6.online/2018/03/01/66-atomic-operations-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-657-5afe9d4ddcccb" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=657&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-657-5afe9d4ddcccb" id="like-post-wrapper-139853928-657-5afe9d4ddcccb"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

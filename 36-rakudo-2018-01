@@ -1,0 +1,99 @@
+
+		<p>A new release of Rakudo was just announced. Most of the changes increase Perl 6 performance this time. Let us briefly look at some of them.</p>
+<p>I am happy to tell that my blog initiated at least two of the changes.</p>
+<h3>Removed UInt64 (not to be confused with uint64) [<a href="https://github.com/rakudo/rakudo/commit/cf15435575">cf154355</a>]</h3>
+<p>We’ve seen this class in the post <a href="https://perl6.online/2018/01/15/26-native-integers-and-uint-in-perl-6/">about native integers</a>. The UInt64 type remained in the codebase for a long time while it was not actually used. The uint type, though, is still to-be-used as the type of the denominator in Rats:</p>
+<pre># XXX: should be Rational[Int, uint]
+my class Rat is Cool does Rational[Int, Int] {</pre>
+<h3>Made DateTime creation about 1.6x faster [<a href="https://github.com/rakudo/rakudo/commit/36d71a39">36d71a39</a>]</h3>
+<p>As we saw, the DateTime constructor <a href="https://perl6.online/2018/01/02/let-1-2-3-9/">used the in-range method</a>, which was replaced with faster explicit tests:</p>
+<pre>- (1..12).in-range($month,&#39;Month&#39;);
+- (1 .. self.DAYS-IN-MONTH($year,$month)).in-range($day,&#39;Day&#39;);
+- (0..23).in-range($hour,&#39;Hour&#39;);
+- (0..59).in-range($minute,&#39;Minute&#39;);
+
++ <strong>1 &lt;= $month &lt;= 12</strong>
++     || X::OutOfRange.new(:what&lt;Month&gt;,:got($month),:range&lt;1..12&gt;).throw;
++ <strong>1 &lt;= $day &lt;= self.DAYS-IN-MONTH($year,$month)</strong>
++     || X::OutOfRange.new(
++         :what&lt;Day&gt;,
++         :got($day),
++         :range(&quot;1..{self.DAYS-IN-MONTH($year,$month)}&quot;)
++     ).throw;
++ <strong>0 &lt;= $hour &lt;= 23</strong>
++     || X::OutOfRange.new(:what&lt;Hour&gt;,:got($hour),:range&lt;0..23&gt;).throw;
++ <strong>0 &lt;= $minute &lt;= 59</strong>
++     || X::OutOfRange.new(:what&lt;Minute&gt;,:got($minute),:range&lt;0..59&gt;).throw;
+
+</pre>
+<h3>Made adding integers to Rats 22% faster [<a href="https://github.com/rakudo/rakudo/commit/418fc068">418fc068</a>]</h3>
+<p>Creating Rats is an interesting procedure, which I am going to blog about in the future. For now, let me show the changes from this commit:</p>
+<pre>sub DON&#39;T_DIVIDE_NUMBERS(Int:D \nu, Int:D \de, $t1, $t2) {
+
+-     my $r;
+-     if nqp::istype($t1, FatRat) || nqp::istype($t2, FatRat) {
+-         <strong>$r := nqp::create(FatRat);</strong>
+-         nqp::bindattr($r, FatRat, &#39;$!numerator&#39;, nqp::decont(nu));
+-         nqp::bindattr($r, FatRat, &#39;$!denominator&#39;, nqp::decont(de));
+-     } else {
+-         $r := nqp::create(Rat);
+-         nqp::bindattr($r, Rat, &#39;$!numerator&#39;, nqp::decont(nu));
+-         nqp::bindattr($r, Rat, &#39;$!denominator&#39;, nqp::decont(de));
+-     }
+-     $r;
+
++     nqp::istype($t1, FatRat) || nqp::istype($t2, FatRat)
++         ?? <strong>nqp::p6bindattrinvres</strong>(
++                nqp::p6bindattrinvres(
++                    nqp::create(FatRat),
++                    FatRat, &#39;$!numerator&#39;, nqp::decont(nu)),
++                FatRat, &#39;$!denominator&#39;, nqp::decont(de))
++         !! nqp::p6bindattrinvres(
++                nqp::p6bindattrinvres(
++                    nqp::create(Rat),
++                    Rat, &#39;$!numerator&#39;, nqp::decont(nu)),
++                Rat, &#39;$!denominator&#39;, nqp::decont(de))
+
+</pre>
+<p>This is a routine that is a part of creating a Rat value from two integers. A Rat value internally contains two attributes, the numerator and the denominator. They were bound via the <tt>nqp::bindattr</tt> method with the help of some temporary variable. Now the Rakudo’s <tt>nqp::p6bindattrinvres</tt> method is used directly. This method is equivalent to the following code (see docs/ops.markdown in the Rakudo directory):</p>
+<pre>{
+    bindattr($obj, $type, $attr-name, $value);
+    $obj;
+}</pre>
+<h3>Made use of faster typechecks (7.5x faster) [<a href="https://github.com/rakudo/rakudo/commit/4c9b84f8">4c9b84f8</a>][<a href="https://github.com/rakudo/rakudo/commit/8f71b0e0">8f71b0e0</a>][<a href="https://github.com/rakudo/rakudo/commit/10cd405f">10cd405f</a>]</h3>
+<p>The key idea of this change is to replace the Perl 6 type checks with NQP ones, all changes are in src/Perl6/Actions.nqp, for example:</p>
+<pre>- if $past.<strong>isa</strong>(QAST::Var) {
++ if nqp::istype($past, QAST::Var) {
+
+- if $elem <strong>~~</strong> QAST::Op
++ if nqp::istype($elem, QAST::Op)</pre>
+<p>As a useful exercise, you can trace back the behaviour of both <tt>.isa</tt> and <tt>~~</tt> in the code and see why it could slow down the check.</p>
+<h3>Made operator chains up to 2.4x faster [<a href="https://github.com/rakudo/rakudo/commit/b77d8756">b77d8756</a>]</h3>
+<p>The change was made in src/Perl6/Optimizer.nqp, and we are not going to read it here, but I wanted to mention this change because it is relevant to a small but very handy feature of Perl 6, chain comparisons such as <tt>1 &lt; $x &lt; 2</tt>. It is claimed that now it works almost as fast as <tt>1 &lt; $x &amp;&amp; $x &lt; 2</tt>.</p>
+<h3>Made .sum on 2-element Lists about 30% faster [<a href="https://github.com/rakudo/rakudo/commit/0af3f4d1">0af3f4d1</a>]</h3>
+<p>This is an interesting change in the code that, basically, avoids using a loop for adding up two values:</p>
+<pre>- nqp::stmts(
+-   (my $list := $!reified),
+-   (my $sum = nqp::ifnull(nqp::atpos($list,0),0)),
+-   (my int $i),
+-   <strong>nqp::while</strong>(
+-     nqp::islt_i($i = nqp::add_i($i,1),$elems),
+-     ($sum = $sum + nqp::ifnull(nqp::atpos($list,$i),0))
+
++ nqp::if(
++   <strong>nqp::isgt_i($elems,2)</strong>,
++   nqp::stmts(
++     (my $list := $!reified),
++     (my $sum = nqp::ifnull(nqp::atpos($list,0),0)),
++     (my int $i),
++     <strong>nqp::while</strong>(
++       nqp::islt_i($i = nqp::add_i($i,1),$elems),
++       ($sum = $sum + nqp::ifnull(nqp::atpos($list,$i),0))
++     ),
++     $sum</pre>
+<p>A lot of NQP code here in src/core/List.pm, but you can understand it if I tell you that <tt>nqp::stmts</tt> makes a sequence of statements a single statement. Thus, the <tt>nqp::isgt_i</tt> check has two branches: for arrays that either have one or two, or arrays with more elements.</p>
+<p>There are more interesting changes but most of them require deeper understanding of Rakudo.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-405" href="https://perl6.online/2018/01/25/36-rakudo-2018-01/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-405" href="https://perl6.online/2018/01/25/36-rakudo-2018-01/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-405" href="https://perl6.online/2018/01/25/36-rakudo-2018-01/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-405-5afe9d7f75637" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=405&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-405-5afe9d7f75637" id="like-post-wrapper-139853928-405-5afe9d7f75637"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

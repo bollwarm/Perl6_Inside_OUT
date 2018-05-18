@@ -1,0 +1,124 @@
+
+		<p>A few days ago, we saw how Perl 6 checks the syntax if you are trying to index an array <a href="https://perl6.online/2017/12/29/obsolete-syntax-warnings-part-1/">with negative indices</a>. Since then, I was thinking about implementing the support of <tt>@a[-1]</tt>. It was not that easy, that’s why I did not demonstrate this last time 🙂</p>
+<p style="padding-left:60px;">Before going further, a small disclaimer. Negative indices are not allowed in Perl 6 for a reason. Unfortunately, this is not very clear from the documentation why. It is said that you should use <tt>@a[* - 1]</tt>, which is equivalent to <tt>@a[@a.elems - 1]</tt>, but no further explanation follows. There is the following <a href="http://design.perl6.org/S09.html#Negative_and_differential_subscripts">phrase in the old design document</a>: <em>‘Negative subscripts are never allowed for standard subscripts unless the subscript is declared modular.’ </em>So, today, I will ignore this restriction assuming that I don’t understand the limitation completely (actually, at the end of the post you will see what kind of additional problems arise if you allow negative indices). My goal here is just to see how it can be done internally. (Update: also, see the comment to the post for some thoughts about forbidding negative indices.)</p>
+<p>First, once again look at the place in src/Perl6/Actions.nqp (the file tightly connected with the Perl 6 Grammar), that implements the behaviour of the <tt>[]</tt> postcircumfix brackets. If it detects a negative index, a compile-time exception is thrown.</p>
+<pre>method postcircumfix:sym&lt;[ ]&gt;($/) {
+    my $past := QAST::Op.new( :name(&#39;&amp;postcircumfix:&lt;[ ]&gt;&#39;), :op(&#39;call&#39;), :node($/) );
+    if $&lt;semilist&gt; {
+        my $c := $/;
+        my $ast := $&lt;semilist&gt;.ast;
+        $past.push($ast) if nqp::istype($ast, QAST::Stmts);
+        if $ast.ann(&#39;multislice&#39;) {
+            $past.name(&#39;&amp;postcircumfix:&lt;[; ]&gt;&#39;);
+        }
+        # for nqp::split(&#39;;&#39;, ~$&lt;semilist&gt;) {
+        #     my $ix := $_ ~~ / [ ^ | &#39;..&#39; ] \s* &lt;( &#39;-&#39; \d+ )&gt; \s* $ /;
+        #     if $ix {
+        #         $c.obs(&quot;a negative &quot; ~ $ix ~ &quot; subscript to index from the end&quot;, &quot;a function such as *&quot; ~ $ix);
+        #     }
+        # }
+    }
+    make WANTED($past, &#39;.[]&#39;);
+}</pre>
+<p>Here, I already commented out the code to remove the check. Of course, it would be too naïve to think that this solves the task.</p>
+<p>First, let us try to de-parse what is happening here. The <tt>if</tt> check looks at the presence of <span style="font-family:monospace;">$&lt;semilist&gt;</span>. What is it? Refer to the Grammar (in src/Perl6/Grammar.nqp):</p>
+<pre>token postcircumfix:sym&lt;[ ]&gt; {
+    :my $*QSIGIL := &#39;&#39;;
+    :dba(&#39;subscript&#39;)
+    &#39;[&#39; ~ &#39;]&#39; [ &lt;.ws&gt; &lt;semilist&gt; ]
+    &lt;O(|%methodcall)&gt;
+}</pre>
+<p>So,  <tt>&lt;semilist&gt;</tt> contains everything in-between the brackets. In the method above, we work with its content as with a string:</p>
+<pre>for nqp::split(&#39;;&#39;, ~$&lt;semilist&gt;) {
+    . . .</pre>
+<p>That looks promising but it is not possible just to assign a new string value there, so that when the program sees a negative index <tt>N</tt>, it replaces it with the <tt>* - N</tt> string, letting Perl parse it further.</p>
+<p>The <tt>$&lt;semilist&gt;</tt> object is not a string, as you can see from, for example, the following usage of it: <tt>$&lt;semilist&gt;.ast</tt>. My next idea was to build a piece of AST to replace the negative index. I rejected this idea as soon as I saw the AST output of a simple <tt>@a[*-1]</tt> call:</p>
+<pre>$ perl6 --target=ast -e&#39;my @a; say @a[*-1]&#39;
+. . .
+ - QAST::Stmts 
+ - QAST::WVal(Array) 
+ - QAST::Stmts &lt;sunk&gt; my @a; say @a[*-1]
+     - QAST::Stmt &lt;sunk&gt; my @a
+     - QAST::Var(lexical @a) &lt;sinkok&gt; :statement_id&lt;?&gt; @a
+     - QAST::Stmt &lt;sunk final&gt; say @a[*-1]
+     - QAST::Want &lt;sunk&gt;
+         - QAST::Op(call &amp;say) &lt;sunk&gt; :statement_id&lt;?&gt; say @a[*-1]
+         - QAST::Op(call &amp;postcircumfix:&lt;[ ]&gt;) &lt;wanted&gt; [*-1]
+             - QAST::Var(lexical @a) &lt;wanted&gt; @a
+             - QAST::Stmts &lt;wanted&gt; *-1
+             - QAST::Op(p6capturelex) &lt;wanted&gt; :statement_id&lt;?&gt; :past_block&lt;?&gt; :code_object&lt;?&gt;
+                 - QAST::Op(callmethod clone) 
+                 - QAST::WVal(WhateverCode) :past_block&lt;?&gt; :code_object&lt;?&gt;
+         - v
+         - QAST::Op(p6sink) 
+         - QAST::Op(call &amp;say) &lt;sunk&gt; :statement_id&lt;?&gt; say @a[*-1]
+             - QAST::Op(call &amp;postcircumfix:&lt;[ ]&gt;) &lt;wanted&gt; [*-1]
+             - QAST::Var(lexical @a) &lt;wanted&gt; @a
+             - QAST::Stmts &lt;wanted&gt; *-1
+                 - QAST::Op(p6capturelex) &lt;wanted&gt; :statement_id&lt;?&gt; :past_block&lt;?&gt; :code_object&lt;?&gt;
+                 - QAST::Op(callmethod clone) 
+                     - QAST::WVal(WhateverCode) :past_block&lt;?&gt; :code_object&lt;?&gt;
+ - QAST::WVal(Nil)</pre>
+<p>It looks to scary to reproduce. A different approach is needed.</p>
+<p>Meanwhile, take the second look at the regex that extracts a negative index:</p>
+<pre>/ [ ^ | &#39;..&#39; ] \s* &lt;( &#39;-&#39; \d+ )&gt; \s* $ /</pre>
+<p>It accepts only two alternatives: negative integers and something that ends with a range, for example, <tt>.. -3</tt>. Aha, should I also handle ranges? But in the case of a range, the regex only contains the end of the potentially incorrect string. Again, not clear what to do.</p>
+<p>OK, let us then look at that mysterious <tt>&lt;semilist&gt;</tt>. Here is its definition in the Grammar:</p>
+<div>
+<pre>rule semilist {
+    :dba(&#39;list composer&#39;)
+    &#39;&#39;
+    [
+    | &lt;?before &lt;.[)\]}]&gt; &gt;
+    | [&lt;statement&gt;&lt;.eat_terminator&gt; ]*
+    ]
+}</pre>
+</div>
+<p>OMG, it can contain statements inside! Indeed, Perl 6 allows, for example, having a function call or a math operation between the brackets:</p>
+<pre>say @a[f() + 1];</pre>
+<p>Yahoo! What does Rakudo say when the calculated index is negative?</p>
+<pre>$ perl6 -e&#39;my @a = &lt;a b c&gt;; say @a[2-3]&#39;
+Index out of range. Is: -1, should be in 0..^Inf
+  in block &lt;unit&gt; at -e line 1</pre>
+<p>This time, an error happens at runtime (ignore the fact the <tt>2-3</tt> expression can be optimised) and the compiler did not catch that (if the case of a function, no optimisation can do that).</p>
+<p>The text of the error message leads us to src/core/Array.pm, where among the rest, the <tt>AT-POS</tt> method is located:</p>
+<pre>multi method AT-POS(Array:D: Int:D $pos) is raw {
+    nqp::if(
+      nqp::isge_i($pos,0)
+        &amp;&amp; nqp::isconcrete(nqp::getattr(self,List,&#39;$!reified&#39;)),
+      nqp::ifnull(
+        nqp::atpos(nqp::getattr(self,List,&#39;$!reified&#39;),$pos),
+        self!AT-POS-SLOW($pos)
+      ),
+      self!AT-POS-SLOW($pos)
+    )
+}</pre>
+<p>The logic here is to call <tt>nqp::atpos</tt> for non-negative indices, which can be accessed in the array—that call returns the required element. For all the rest (including negative subscripts), the <tt>AT-POS-SLOW</tt> method is called. The above-shown runtime error happens inside <tt>AT-POS-SLOW</tt>. So, let us try not to pass control to it.</p>
+<p>Now, it is time to remember that our idea was to count from the end of the array if the index is negative. In other words, let us modify the <tt>$pos</tt> variable here. You may find it very useful to consult the <a href="https://github.com/perl6/nqp/blob/master/docs/ops.markdown">nqp/docs/ops.markdown</a> document that describes NQP operators. After some experimenting, the following lines were added to the method:</p>
+<pre>multi method AT-POS(Array:D: Int:D $pos) is raw {
+    <strong>nqp::if(
+      nqp::islt_i($pos, 0),
+      $pos := nqp::add_i($pos, nqp::elems(nqp::getattr(self,List,&#39;$!reified&#39;)))
+    );</strong>
+    . . .</pre>
+<p>If <tt>$pos</tt> is negative (less than zero), add the length of the array to it. The rest of the method remains the same, as the index should be either zero or positive after the update.</p>
+<p>Compile and test!</p>
+<pre>$ ./perl6 -e&#39;my @a = &lt;a b c d&gt;; say @a[-1]&#39;
+d</pre>
+<p>Isn’t it what we wanted? What about slices?</p>
+<pre>$ ./perl6 -e&#39;my @a = &lt;a b c d&gt;; say @a[-1,-2]&#39;
+(d c)</pre>
+<p>They also work!</p>
+<p>Ranges?</p>
+<pre>$ ./perl6 -e&#39;my @a = &lt;a b c d&gt;; say @a[-3..-2]&#39;
+(b c)</pre>
+<p>Here you are!</p>
+<p>If you want to continue, you have to decide what happens when a negative index it too big for the given array:</p>
+<pre>$ ./perl6 -e&#39;my @a = &lt;a b c d&gt;; say @a[10-20]&#39;
+Index out of range. Is: -6, should be in 0..^Inf
+  in block &lt;unit&gt; at -e line 1</pre>
+<p>For positive indices, going out of the array returns <tt>(Any)</tt>. Probably, this should also be the case for big negative indices. Alternatively, you divide an index by modulo and thus making an index ‘loop.’ I will leave this as an exercise for the reader.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-233" href="https://perl6.online/2018/01/07/18-implementing-negative-array-subscripts-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-233" href="https://perl6.online/2018/01/07/18-implementing-negative-array-subscripts-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-233" href="https://perl6.online/2018/01/07/18-implementing-negative-array-subscripts-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-233-5afe9da454811" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=233&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-233-5afe9da454811" id="like-post-wrapper-139853928-233-5afe9da454811"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

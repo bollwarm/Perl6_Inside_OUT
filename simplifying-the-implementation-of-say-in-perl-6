@@ -1,0 +1,54 @@
+
+		<p>For the last two days, the topic of this blog was the internals of the <tt>say</tt> routine in Rakudo Perl 6. (By the way, the term <em>routine</em> is a good choice if you need to talk about both subs and methods.)</p>
+<p>In src/core/io_operators.pm, other routines are also defined. The main focus of today is on the implementation details of <tt>print</tt>, <tt>say</tt>, <tt>put</tt>, and <tt>note</tt> for multiple arguments. Let us look at the functions having this signature: <tt>(**@args is raw)</tt>.</p>
+<pre>multi sub print(**@args is raw) { 
+    $*OUT.print: @args.join
+}
+multi sub put(**@args is raw) {
+    my $out := $*OUT;
+    $out.print: @args.join ~ $out.nl-out
+}
+
+multi sub note(**@args is raw) {
+    my $err := $*ERR;
+    my str $str;
+    $str = nqp::concat($str,nqp::unbox_s(.gist)) for @args;
+    $err.print(nqp::concat($str,$err.nl-out));
+}
+
+multi sub say(**@args is raw) {
+    my str $str;
+    my $iter := @args.iterator;
+    nqp::until(
+      nqp::eqaddr(($_ := $iter.pull-one), IterationEnd),
+      $str = nqp::concat($str, nqp::unbox_s(.gist)));
+    my $out := $*OUT;
+    $out.print(nqp::concat($str,$out.nl-out));
+}</pre>
+<p>I sorted the functions by the size of their bodies. As you can see, <tt>print</tt> has the simplest implementation, while <tt>say</tt> is way more complicated. Let us try to understand if it is possible to simplify it.</p>
+<p>First, re-write the body of <tt>say</tt> in the way <tt>note</tt> is implemented. The main difference between the behaviour of <tt>say</tt> and <tt>note</tt> is the output stream: it is either standard output or standard error. By default, <tt>$*OUT</tt> and <tt>$*ERR</tt> dynamic variables are connected to STDOUT and STDERR.</p>
+<p>Both <tt>say</tt> and <tt>note</tt> call the <tt>gist</tt> method to stringify the values. So, change the name of the variable and copy the rest.</p>
+<pre>multi sub say(**@args is raw) {
+    my $out := $*OUT;
+    my str $str;
+    $str = nqp::concat($str,nqp::unbox_s(.gist)) for @args;
+    $out.print(nqp::concat($str,$out.nl-out));
+}</pre>
+<p>Try it out:</p>
+<pre>$ ./perl6 -e&#39;say(Bool::True, 2, 3)&#39;
+True23</pre>
+<p>Seems to be OK, although such changes must be tested more thoroughly. So, let’s run the spec tests:</p>
+<pre>$ make spectest</pre>
+<p>This command initiates the tests from the <a href="https://github.com/perl6/roast">Roast test suite</a>—a huge set of tests covering thousands of syntax corners of Perl 6. The command above also downloads the test suite if needed. The whole run may take a few minutes.</p>
+<p>In my case, the only difference between the run on a fresh Rakudo and the one after the modification of <tt>say</tt> was a failing t/spec/S07-hyperrace/basics.t, which did not happen in the second run and when I ran it individually. So, I think, my change passed the test suite.</p>
+<p>The body of <tt>say</tt> is now more compact but it is still bigger than the implementation of <tt>print</tt> or <tt>put</tt>. Let us take them as inspiration. What is missing there is a call to <tt>gist</tt>, which is easy to add, though:</p>
+<pre>multi sub say(**@args is raw) {
+    my $out := $*OUT;
+    $out.print: @args.map(<a href="https://perl6advent.wordpress.com/2017/12/11/">*.gist</a>).join ~ $out.nl-out;
+}</pre>
+<p>To make sure nothing is broken, run the spec tests again.</p>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-212" href="https://perl6.online/2018/01/05/simplifying-the-implementation-of-say-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-212" href="https://perl6.online/2018/01/05/simplifying-the-implementation-of-say-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-212" href="https://perl6.online/2018/01/05/simplifying-the-implementation-of-say-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-212-5afe9da86ed1d" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=212&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-212-5afe9da86ed1d" id="like-post-wrapper-139853928-212-5afe9da86ed1d"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,60 @@
+
+		<p>Yesterday, we talked about the stages of the compiling process of a Perl 6 program and saw the parse tree of a simple ‘Hello, World!’ program. Today, our journey begins at the starting point of the Grammar.</p>
+<p>So, here is the program:</p>
+<pre>say &#39;Hello, World!&#39;</pre>
+<p>The grammar of Perl 6 is written in Not Quite Perl 6 and is located in Grammar.nqp 🙂 And that is amazing, as if you know how to work with grammars, you will be able to read the heart of the language.</p>
+<p>The Perl 6 Grammar is defined as following:</p>
+<pre>grammar Perl6::Grammar is HLL::Grammar does STD {
+    . . .
+}</pre>
+<p>It is a class derived from HLL::Grammar (HLL stands for <em>High-Level Language</em>) and implements the STD (<em>Standard</em>) role. Let’s not focus on the hierarchy for now, though.</p>
+<p>The Grammar has the TOP method. Notice that this is a <em>method</em>, not a rule or a token. The main feature of the method is that it is assumed that it contains some Perl 6 <em>code</em>, not regexes.</p>
+<p>As we did earlier, let’s use our beloved method of reverse engineering by adding our own printing instructions to different places of Rakudo sources, recompiling it and watching how it works. The first target is the TOP method:</p>
+<pre>grammar Perl6::Grammar is HLL::Grammar does STD {
+    my $sc_id := 0;
+    method TOP() {
+        <strong>nqp::say(&#39;At the TOP&#39;);</strong>
+        . . .</pre>
+<p>As this is NQP, you need to call functions in the <tt>nqp::</tt> namespace (although <tt>say</tt> is available without the namespace prefix, too). One of the notable differences between Perl 6 and NQP is the need to always have parentheses in function calls: if you omit them, the code won’t compile.</p>
+<h2>Perl inside regexes inside Perl</h2>
+<p>For training purposes, let’s try adding similar instruction to the <tt>comp_unit</tt> token (computational unit). This token is a part of the Grammar and is also called as one of the first methods during parsing Perl 6.</p>
+<p>The body of the above shown TOP method is written in NQP. The body of a token is another language, and you should use regexes instead. Thus, to embed an instruction in Perl (or NQP), you need to switch the language.</p>
+<p>There are two options: use a code block in curly braces or the colon-prefixed syntax that is very widely used in Rakudo sources to declare variables.</p>
+<pre>token comp_unit {
+    <strong>{
+        nqp::say(&#39;comp_unit&#39;);
+    }
+    :my $x := nqp::say(&#39;Var in grammar&#39;);</strong>
+    . . .</pre>
+<p>Notice that it NQP, the binding <tt>:=</tt> operator have to be used in place of the assignment <tt>=</tt>.</p>
+<h2>Statement list</h2>
+<p>So, back to the grammar. In the output that the <tt>--target=parse</tt> command-line option produces, we can see a <tt>statementlist</tt> node at the top of the parse tree. Let us look at its implementation in the Grammar. With some simplifications, it looks very lightweight:</p>
+<pre>rule statementlist($*statement_level = 0) {
+    . . .
+    &lt;.ws&gt;
+    [
+    | $
+    | &lt;?before &lt;.[\)\]\}]&gt;&gt;
+    | [ &lt;statement&gt; &lt;.eat_terminator&gt; ]*
+    ]
+    . . .
+}</pre>
+<p>Basically, it says that a statement list is a list of zero or more statements. Square brackets in Perl 6 grammars create a non-capturing group, and we see three alternatives inside. One of the alternatives is just the end of data, another one is the end of the block (e. g., ending with a closing curly brace). For the sake of art, an additional vertical bar is added before the first alternative too.</p>
+<p>The top-level rule is simple but the rest is becoming more and more complex. For example, let’s have a quick look at the eat terminator:</p>
+<pre>token eat_terminator {
+    || &#39;;&#39;
+    || &lt;?MARKED(&#39;endstmt&#39;)&gt; &lt;.ws&gt;
+    || &lt;?before &#39;)&#39; | &#39;]&#39; | &#39;}&#39; &gt;
+    || $
+    || &lt;?stopper&gt;
+    || &lt;?before [if|while|for|loop|repeat|given|when] » &gt; {
+       $/.&#39;!clear_highwater&#39;(); self.typed_panic(
+          &#39;X::Syntax::Confused&#39;, reason =&gt; &quot;Missing semicolon&quot; ) }
+    || { $/.typed_panic( &#39;X::Syntax::Confused&#39;, reason =&gt; &quot;Confused&quot; ) }
+}</pre>
+<p>And this is just a small separator between the statements 🙂</p>
+<p>The grammar file is more than 5500 lines of code; it is not possible to discuss and understand it all in a single blog post. Let us stop here for today and continue with easier stuff tomorrow.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-132" href="https://perl6.online/2018/01/01/the-start-of-the-grammar/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-132" href="https://perl6.online/2018/01/01/the-start-of-the-grammar/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-132" href="https://perl6.online/2018/01/01/the-start-of-the-grammar/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-132-5afe9dac7daf7" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=132&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-132-5afe9dac7daf7" id="like-post-wrapper-139853928-132-5afe9dac7daf7"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

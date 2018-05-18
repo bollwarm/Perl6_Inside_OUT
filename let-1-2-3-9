@@ -1,0 +1,91 @@
+
+		<p>Is it easy to break the behaviour of Perl 6? Well, the answer probably depends on what exactly you want to break.</p>
+<p>Playing with <a href="https://perl6.online/2017/12/27/digging-operator-precedence-part-1/">operator precedence</a>, I wanted to change the rules of arithmetical operators <tt>+</tt> and <tt>*</tt> so that they are executed in different order, namely, multiplication first, addition second.</p>
+<p>Sounds like an easy task. Go to src/Perl6/Grammar.nqp and change a couple of lines that set the precedence of the <tt>+</tt> and <tt>*</tt> infixes:</p>
+<pre><span style="color:red;">- token infix:sym&lt;*&gt;    { &lt;sym&gt; &lt;O(|%multiplicative)&gt; }</span>
+<span style="color:green;">+ token infix:sym&lt;*&gt;    { &lt;sym&gt; &lt;O(|%additive)&gt; }</span>
+. . .
+<span style="color:red;">- token infix:sym&lt;+&gt;    { &lt;sym&gt; &lt;O(|%additive)&gt; }</span>
+<span style="color:green;">+ token infix:sym&lt;+&gt;    { &lt;sym&gt; &lt;O(|%multiplicative)&gt; }</span>
+</pre>
+<p>Ready? Compile!</p>
+<p>Recompiling the grammar takes a long time, so at first it looks promising, but after a few seconds, the compilation stops with an error:</p>
+<pre><strong>Month out of range. Is: -935111296, should be in 1..12</strong>
+
+Makefile:517: recipe for target &#39;perl6-m&#39; failed
+make: *** [perl6-m] Error 1</pre>
+<p>Month out of range?? Oh, we changed the rules of the Universe and before Perl 6 is even compiled, the new rules of arithmetics are already applied.</p>
+<p>OK, let’s add some anaesthesia and suppress the error message. The code that checks for the correct month value is located in src/core/DateTime.pm, namely, inside the DateTime constructor. Comment that line out:</p>
+<pre>method !new-from-positional(DateTime:
+    Int() $year,
+    Int() $month,
+    Int() $day,
+    Int() $hour,
+    Int() $minute,
+        $second,
+        %extra,
+    :$timezone = 0,
+    :&amp;formatter,
+) {
+    <strong># (1..12).in-range($month,&#39;Month&#39;);</strong>
+    (1 .. self.DAYS-IN-MONTH($year,$month)).in-range($day,&#39;Day&#39;);
+    (0..23).in-range($hour,&#39;Hour&#39;);
+    (0..59).in-range($minute,&#39;Minute&#39;);
+    (^61).in-range($second,&#39;Second&#39;);
+    . . .</pre>
+<p>This time, the month range check doesn’t stop us from going further but another error breaks in:</p>
+<pre>MVMArray: Index out of bounds
+
+Makefile:517: recipe for target &#39;perl6-m&#39; failed
+make: *** [perl6-m] Error 1</pre>
+<p>Looks cryptic. MVMArray is a MoarVM array, obviously. So, we not only broke Perl 6 but MoarVM, too. Let’s go fix it.</p>
+<p>The sources of MoarVM are located in a separate git repository at nqp/MoarVM. The message we saw can be found in nqp/MoarVM/src/6model/reprs/VMArray.c:</p>
+<pre>if (index &lt; 0)
+    MVM_exception_throw_adhoc(tc, &quot;MVMArray: Index out of bounds&quot;);</pre>
+<p>There are two places like that, so let’s not guess which of them we need and preventatively change both of them to the following:</p>
+<pre>if (index &lt; 0)
+    index = 0;
+    // MVM_exception_throw_adhoc(tc, &quot;MVMArray: Index out of bounds&quot;);</pre>
+<p>(This is C, not Perl.)</p>
+<p>From nqp/MoarVM, compile and re-install MoarVM and later try compiling Rakudo:</p>
+<pre>~/rakudo/nqp/MoarVM$ make
+~/rakudo/nqp/MoarVM$ make install
+
+~/rakudo/nqp/MoarVM$ cd ../..
+~/rakudo$ make</pre>
+<p>This time, the error pops up immediately (as no NQP files are compiled):</p>
+<pre>Use of Nil in numeric context
+
+Use of Nil in numeric context
+
+Day out of range. Is: -51, should be in 1..0
+
+Makefile:517: recipe for target &#39;perl6-m&#39; failed
+make: *** [perl6-m] Error 1</pre>
+<p>It looks like we can ignore Nils at the moment, but the DateTime hurts us again. We know the remedy:</p>
+<pre># (1..12).in-range($month,&#39;Month&#39;);
+<strong># (1 .. self.DAYS-IN-MONTH($year,$month)).in-range($day,&#39;Day&#39;);</strong></pre>
+<p>Yahoo! This time, the compilation process was calm and we got a new <tt>perl6</tt> executable, which works as we wanted:</p>
+<pre>$ ./perl6 -e&#39;say 1+2*3&#39;
+9</pre>
+<p>Don’t forget to restore the files before further experiments with Perl 6 🙂</p>
+<h3>Update</h3>
+<p>In the comment to this blog post, you can see a reference to the <a href="https://github.com/rakudo/rakudo/commit/36d71a39e8">commit</a>, which changes the way Rakudo checks the validity of the DateTime object. Instead of using the <tt>in-range</tt> method, simpler checks are used now, for example:</p>
+<pre>1 &lt;= $month &lt;= 12
+    || X::OutOfRange.new(:what&lt;Month&gt;,:got($month),:range&lt;1..12&gt;).throw;</pre>
+<p>Here are the time measures of the two runs of a loop creating DateTime objects before and after the update:</p>
+<pre>time ./perl6 -e&#39;DateTime.new(2018,1,5,12,30,0) for ^500000&#39;
+real <strong>0m7.261s</strong>
+user 0m7.276s
+sys 0m0.020s
+
+. . .
+
+$ time ./perl6 -e&#39;DateTime.new(2018,1,5,12,30,0) for ^500000&#39;
+real <strong>0m4.457s</strong>
+user 0m4.476s
+sys 0m0.012s</pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-160" href="https://perl6.online/2018/01/02/let-1-2-3-9/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-160" href="https://perl6.online/2018/01/02/let-1-2-3-9/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-160" href="https://perl6.online/2018/01/02/let-1-2-3-9/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-160-5afe9dab62f3f" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=160&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-160-5afe9dab62f3f" id="like-post-wrapper-139853928-160-5afe9dab62f3f"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

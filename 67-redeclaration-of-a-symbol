@@ -1,0 +1,82 @@
+
+		<p>Today, we will see how Perl 6 helps to keep our programs better.</p>
+<h2>Redeclaration of a variable</h2>
+<p>Examine the following program:</p>
+<pre>my $x = 1;
+my $x = 2;
+say $x;</pre>
+<p>You can immediately see that this program is not entirely correct. Either we meant to assign a new value to <tt>$x</tt> or to create a new variable with a different name. In either case, compiler has no idea and complains:</p>
+<pre>$ perl6 redecl.pl 
+Potential difficulties:
+    <span style="color:#0000ff;">Redeclaration of symbol &#39;$x&#39;</span>
+    at /Users/ash/redecl.pl:2
+    ------&gt; my $x⏏ = 2;
+2</pre>
+<p>You see a runtime warning, while the program does not stop. Let us find out where it happens in the source code.</p>
+<p>When you declare a variable, the grammar matches the corresponding text and calls the <tt>variable_declarator</tt> action method. It is quite compact but nevertheless I will not quote it completely.</p>
+<pre>class Perl6::Actions is HLL::Actions does STDActions {
+    . . .
+
+    method variable_declarator($/) {
+        . . .
+    }
+
+    . . .
+}</pre>
+<p>By the way, you can see here how Perl 6 treats a variable name:</p>
+<pre> my $past := $&lt;variable&gt;.ast;
+ my $sigil := $&lt;variable&gt;&lt;sigil&gt;;
+ my $twigil := $&lt;variable&gt;&lt;twigil&gt;;
+ my $desigilname := ~$&lt;variable&gt;&lt;desigilname&gt;;
+ <span style="color:#0000ff;"><strong>my $name := $sigil ~ $twigil ~ $desigilname;</strong></span></pre>
+<p>The name of a variable is a concatenation of a sigil, a twigil and an identifier (which is called desigiled name in the code).</p>
+<p>Then, if we’ve got a proper variable name, check it against an existing lexpad:</p>
+<pre>if $&lt;variable&gt;&lt;desigilname&gt; {
+    my $lex := $*W.cur_lexpad();
+    <span style="color:#0000ff;">if $lex.symbol($name) {</span>
+<span style="color:#0000ff;">        $/.typed_worry(&#39;X::Redeclaration&#39;, symbol =&gt; $name);</span>
+<span style="color:#0000ff;">    }</span></pre>
+<p>If the name is known, generate a warning. If everything is fine, create a variable declaration:</p>
+<pre>make declare_variable($/, $past, ~$sigil, ~$twigil, $desigilname,
+                      $&lt;trait&gt;, $&lt;semilist&gt;, :@post);</pre>
+<h2>Redeclaration of a routine</h2>
+<p>Now, let us try to re-create a subroutine:</p>
+<pre>sub f() {}
+sub f() {}</pre>
+<p>This may only be OK if the subs are declared as multi-subs. With the given code, the program will not even compile:</p>
+<pre>===SORRY!=== Error while compiling /Users/ash/redecl.pl
+Redeclaration of routine &#39;f&#39; <span style="color:#0000ff;">(did you mean to declare a multi-sub?)</span>
+at /Users/ash/redecl.pl:6
+------&gt; sub f() {}⏏&lt;EOL&gt;</pre>
+<p>This time, it happens in a much more complicated method, <tt>routine_def</tt>:</p>
+<pre>method routine_def($/) {
+     . . .
+
+     my $predeclared := $outer.symbol($name);
+     if $predeclared {
+         my $Routine := $*W.find_symbol([&#39;Routine&#39;], :setting-only);
+         unless nqp::istype( $predeclared&lt;value&gt;, $Routine)
+                &amp;&amp; nqp::getattr_i($predeclared&lt;value&gt;, $Routine, &#39;$!yada&#39;) {
+              <span style="color:#0000ff;">$*W.throw($/, [&#39;X&#39;, &#39;Redeclaration&#39;],</span>
+<span style="color:#0000ff;">                        symbol =&gt; ~$&lt;deflongname&gt;.ast,</span>
+<span style="color:#0000ff;">                        what =&gt; &#39;routine&#39;,</span>
+<span style="color:#0000ff;">              );</span>
+         }
+     }</pre>
+<h2>The exception</h2>
+<p>The code of the exception is rather simple. Here it is:</p>
+<pre>my class X::Redeclaration does X::Comp {
+    has $.symbol;
+    has $.postfix = &#39;&#39;;
+    has $.what = &#39;symbol&#39;;
+    method message() {
+        &quot;Redeclaration of $.what &#39;$.symbol&#39;&quot;
+        ~ (&quot; $.postfix&quot; if $.postfix)
+        ~ (&quot; (did you mean to declare a multi-sub?)&quot; if $.what eq &#39;routine&#39;);
+    }
+}</pre>
+<p>As you see, depending on the value of <tt>$.what</tt>, it prints either a short message or adds a suggestion to use the <tt>multi</tt> keyword.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-680" href="https://perl6.online/2018/03/01/67-redeclaration-of-a-symbol/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-680" href="https://perl6.online/2018/03/01/67-redeclaration-of-a-symbol/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-680" href="https://perl6.online/2018/03/01/67-redeclaration-of-a-symbol/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-680-5afe9d4a7e5a9" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=680&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-680-5afe9d4a7e5a9" id="like-post-wrapper-139853928-680-5afe9d4a7e5a9"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

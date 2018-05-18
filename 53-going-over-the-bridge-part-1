@@ -1,0 +1,56 @@
+
+		<p>In the classes that handle numbers in Perl 6, we saw the <tt>Bridge</tt> method, which is used polymorphically. Let us spend some time and try to understand 1) how it works and 2) is it necessary.</p>
+<h2>Classes and Roles</h2>
+<p>Our first step is to look where the method is defined. Here is the list of classes and roles that we need:</p>
+<ul>
+<li><tt>Duration</tt></li>
+<li><tt>Instant</tt></li>
+<li><tt>Int</tt></li>
+<li><tt>Num</tt></li>
+<li><tt>Rational</tt></li>
+<li><tt>Real</tt></li>
+</ul>
+<p>To anticipate the next step, let us add some more details about their relations:</p>
+<ul>
+<li><tt>class Duration is Cool does Real</tt></li>
+<li><tt>class Instant is Cool does Real</tt></li>
+<li><tt>class Int <em>is Cool</em> does Real</tt></li>
+<li><tt>class Num <em>is Cool</em> does Real</tt></li>
+<li><tt>role Rational does Real</tt></li>
+<li><tt>role Real does Numeric</tt></li>
+</ul>
+<p>In the italic font, I added pseudo-declarations that are not explicitly spelled in the corresponding files in src/core but are set via src/Perl6/Metamodel/BOOTSTRAP.nqp:</p>
+<pre>Int.HOW.add_parent(Int, Cool);
+. . .
+Num.HOW.add_parent(Num, Cool);</pre>
+<p>For the complete picture, we could look at the place of other classes such as <tt>Rat</tt>, or <tt>Complex</tt> in this hierarchy, but let us focus on the above list first.</p>
+<h2>The Bridge methods</h2>
+<p>Now, let us see the definitions of the <tt>Bridge</tt> methods in those classes and roles.</p>
+<p>The two classes, <tt>Duration</tt> and <tt>Instand</tt>, stand a bit apart from the rest, as they represent time rather than numbers (although time is represented by numbers, of course). The <tt>Bridge</tt> methods are defined in the following way (in this and the following extracts, you can easily see the class in which the method is defined by looking at the type of the argument):</p>
+<pre>method Bridge(Duration:D:) { $!tai.Num }
+
+method Bridge(Instant:D:) { $!tai.Bridge }</pre>
+<p>The <tt>$!tai</tt> class attribute is a <tt>Rat</tt> number that keeps the number of seconds since 1970.</p>
+<p>Okay, moving to the numbers. For the <tt>Num</tt> class and the <tt>Real</tt> role, there are no comments:</p>
+<pre>method Bridge(Num:D:) { self }
+
+method Bridge(Real:D:) { self.Num }</pre>
+<p>The definition in the <tt>Rational</tt> role looks a bit outstanding and does not include the clear argument, so it can accept both defined and undefined invocants:</p>
+<pre>method Bridge() { self.Num } <em># Rational role</em></pre>
+<p>Finally, the <tt>Int</tt> class builds the bridge using NQP:</p>
+<pre>method Bridge(Int:D:) {
+    nqp::p6box_n(nqp::tonum_I(self));
+}</pre>
+<p>It converts an <tt>Int</tt> number to a native number and boxes it to a Perl 6 <tt>Num</tt> value. This is important, and we should see it in the REPL output, for example:</p>
+<pre>$ perl6 
+To exit type &#39;exit&#39; or &#39;^D&#39;
+&gt; <strong>Int</strong>.new.Bridge.WHAT;
+(<strong>Num</strong>)</pre>
+<p>So, the bridge from <tt>Int</tt> is <tt>Num</tt>. Actually, other bridges also give us the same data type. It is clearly visible from the definitions of the method that we just saw. The only exception is the <tt>Instant</tt> class: it calls <tt>.Bridge</tt> on the <tt>Rat</tt> value. The <tt>Rat</tt> class does not define the method, but it is inherited from the <tt>Rational</tt> role:</p>
+<pre>my class Rat is Cool does Rational</pre>
+<p>We know that the method from that role returns <tt>self.Num</tt>.</p>
+<p>Feeling dizzy? Let’s take a break and continue in the next post.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-515" href="https://perl6.online/2018/02/11/53-going-over-the-bridge-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-515" href="https://perl6.online/2018/02/11/53-going-over-the-bridge-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-515" href="https://perl6.online/2018/02/11/53-going-over-the-bridge-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-515-5afe9d61a49d8" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=515&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-515-5afe9d61a49d8" id="like-post-wrapper-139853928-515-5afe9d61a49d8"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

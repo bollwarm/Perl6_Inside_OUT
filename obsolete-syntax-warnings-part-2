@@ -1,0 +1,59 @@
+
+		<p>Today, we continue exploring the error messages that Rakudo developers embedded to detect old Perl 5 constructions in the Perl 6 code.</p>
+<h2>The <tt>obs</tt> method</h2>
+<p>But first, let’s make a small experiment and add a call to the <tt>obs</tt> method in the rule parsing the <tt>for</tt> keyword.</p>
+<pre>rule statement_control:sym&lt;for&gt; {
+    &lt;sym&gt;&lt;.kok&gt; {}
+    [ &lt;?before &#39;my&#39;? &#39;$&#39;\w+\s+&#39;(&#39; &gt;
+        <strong>&lt;.obs(&#39;Hello&#39;, &#39;World!&#39;)&gt;</strong> &lt;.typed_panic: &#39;X::Syntax::P5&#39;&gt; ]?
+    [ &lt;?before &#39;(&#39; &lt;.EXPR&gt;? &#39;;&#39; &lt;.EXPR&gt;? &#39;;&#39; &lt;.EXPR&gt;? &#39;)&#39; &gt;
+        &lt;.obs(&#39;C-style &quot;for (;;)&quot; loop&#39;, &#39;&quot;loop (;;)&quot;&#39;)&gt; ]?
+    &lt;xblock(1)&gt;
+}</pre>
+<p>The dot before the name of the method prevents creating a named element in the Match object. Actually, that is not that important as soon as the <tt>obs</tt> call generates an exception. In many other cases, the dot is very useful, of course.</p>
+<p>Compile Rakudo and feed it with the erroneous Perl 6 code:</p>
+<pre>$ ./perl6 -e&#39;for my $x (@a) {}&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of <strong>Hello</strong>; in Perl 6 please use <strong>World!</strong>
+at -e:1
+------&gt; for ⏏my $x (@a) {}</pre>
+<p>As you see, we’ve generated some rubbish message but the X::Syntax::P5 exception did not have a chance to appear, as the parsing stopped at the place the <tt>obs</tt> method was called.</p>
+<h2>No foreach anymore</h2>
+<p>Another error message appears when you try using the <tt>foreach</tt> keyword:</p>
+<pre>$ ./perl6 -e&#39;foreach @a {}&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of &#39;foreach&#39;; in Perl 6 please use &#39;for&#39;
+at -e:1
+------&gt; foreach⏏ @a {}</pre>
+<p>Notice that the compiler stopped even before figuring out that the <tt>@a</tt> variable is not defined.</p>
+<p>Here is the rule that finds the outdated keyword:</p>
+<pre>rule statement_control:sym&lt;foreach&gt; {
+    &lt;sym&gt;&lt;.end_keyword&gt; &lt;.obs(&quot;&#39;foreach&#39;&quot;, &quot;&#39;for&#39;&quot;)&gt;
+}</pre>
+<p>The <tt>end_keyword</tt> method is a token that matches the right edge of the keyword; this is not a method to report about the end of support of the keyword 🙂 You can see this method in many other rules in the grammar.</p>
+<pre>token end_keyword {
+    » &lt;!before &lt;.[ \( \\ &#39; \- ]&gt; || \h* &#39;=&gt;&#39;&gt;
+}</pre>
+<h2>No do anymore</h2>
+<p>Another potential mistake is creating the <tt>do</tt> blocks instead of the new <tt>repeat/while</tt> or <tt>repeat/until</tt>.</p>
+<pre>$ ./perl6 -e&#39;do {} while 1&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of do...while;
+in Perl 6 please use repeat...while or repeat...until
+at -e:1</pre>
+<p>This time, the logic for detecting the error is hidden deeply inside the <tt>statement</tt> token:</p>
+<pre>token statement($*LABEL = &#39;&#39;) {
+    . . .
+    my $sp := $&lt;EXPR&gt;&lt;statement_prefix&gt;;
+    <strong>if $sp &amp;&amp; $sp&lt;sym&gt; eq &#39;do&#39;</strong> {
+         my $s := $&lt;statement_mod_loop&gt;&lt;sym&gt;;
+         $/.obs(&quot;do...&quot; ~ $s, &quot;repeat...while or repeat...until&quot;);
+    }
+    . . .
+}</pre>
+<p>The second symbol is taken from the <tt>$&lt;statement_mod_loop&gt;&lt;sym&gt;</tt> value, so the error message contains the proper instruction for both <tt>do {} until</tt> and <tt>do {} for </tt>blocks.</p>
+<p>Let’s stop here for today. We’ll examine more obsolete syntax in the next year. Meanwhile, I wish you all the best and success with using Perl 6 in 2018!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-119" href="https://perl6.online/2017/12/30/obsolete-syntax-warnings-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-119" href="https://perl6.online/2017/12/30/obsolete-syntax-warnings-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-119" href="https://perl6.online/2017/12/30/obsolete-syntax-warnings-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-119-5afe9db54c9e8" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=119&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-119-5afe9db54c9e8" id="like-post-wrapper-139853928-119-5afe9db54c9e8"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,72 @@
+
+		<p>I was randomly looking at different Rakudo Perl 6 source files and found a syntax construction that I could not recognise. I hope you were reading the documentation more carefully (or you did not forget after you have read it) than me, but nevertheless let me devote today’s post to that feature.</p>
+<p>So, this was in the src/core/IO/Spec/QNX.pm file:</p>
+<pre>my class IO::Spec::QNX is IO::Spec::Unix {
+
+    method canonpath ($patharg, :$parent) {
+        my $path = $patharg.Str;
+        my $node = &#39;&#39;;
+        if <strong>$path ~~ s {^ ( &#39;//&#39; &lt;-[ / ]&gt;+ ) &#39;/&#39;? $} = &#39;&#39;</strong>
+        or <strong>$path ~~ s {^ ( &#39;//&#39; &lt;-[ / ]&gt;+ ) &#39;/&#39; }   = &#39;/&#39;</strong>
+            { $node = ~ $0; }
+
+        $path = IO::Spec::Unix.canonpath($path, :$parent);
+
+        $node ~ $path;
+    }
+}</pre>
+<p>The unusual construction is shown in bold.</p>
+<p>The basic form of substitution, which is the same in both Perls, is the following:</p>
+<pre>my $str = &#39;Perl 5&#39;;
+$str ~~ s/5/6/;
+say $str;</pre>
+<p>Delimiters may be different, but unlike Perl 5, you cannot use two pairs of braces:</p>
+<pre>my $str = &#39;Perl 5&#39;;
+$str ~~ s{5}{6};
+say $str;</pre>
+<p>This code generates a compile-time error:</p>
+<pre>===SORRY!=== Error while compiling /Users/ash/s-2.pl
+Unsupported use of brackets around replacement;
+in Perl 6 please use assignment syntax
+at /Users/ash/s-2.pl:2
+------&gt; $str ~~ s{5}⏏{6};</pre>
+<p>As soon as you use balanced brackets, you are expected to use assignment for the replacement part:</p>
+<pre>my $str = &#39;Perl 5&#39;;
+$str ~~ s{5} = &#39;6&#39;;
+say $str;</pre>
+<p>And this is what we see in the original fragment:</p>
+<pre>if $path ~~ s {^ ( &#39;//&#39; &lt;-[ / ]&gt;+ ) &#39;/&#39;? $} = &#39;&#39;
+or $path ~~ s {^ ( &#39;//&#39; &lt;-[ / ]&gt;+ ) &#39;/&#39; } = &#39;/&#39;</pre>
+<p>By the way, <a href="https://perl6.online/2018/01/23/embedded-comment-delimiters-in-perl-6/">other brackets</a> also work fine, for example:</p>
+<pre>my $str = &#39;Perl 5&#39;;
+$str ~~ s《5》 = &#39;6&#39;;
+say $str;</pre>
+<p>You can find the place in the Perl 6 Grammar, where this obsolete syntax bit is caught:</p>
+<div>
+<pre>grammar Perl6::Grammar is HLL::Grammar does STD {
+    . . .
+
+    # nibbler for s///
+    token sibble($l, $lang2, @lang2tweaks?) {
+        . . .
+
+        [ &lt;?{ $start ne $stop }&gt;
+            &lt;.ws&gt;
+            <strong>[ &lt;?[ \[ \{ \( \&lt; ]&gt;</strong>
+<strong>            &lt;.obs(&#39;brackets around replacement&#39;,</strong>
+<strong>                  &#39;assignment syntax&#39;)&gt; ]?</strong></pre>
+</div>
+<p>It propagates further to the following exception (src/core/Exception.pm):</p>
+<pre>my class X::Obsolete does X::Comp {
+    has $.old;
+    has $.replacement; # can&#39;t call it $.new, collides with constructor
+    has $.when = &#39;in Perl 6&#39;;
+    method message() { 
+        &quot;??Unsupported use of $.old; $.when please use $.replacement&quot;
+    }
+}</pre>
+<p>And that’s all for today. See you tomorrow!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-440" href="https://perl6.online/2018/01/29/40-substitution-and-balanced-brackets-in-perl-6-regexes/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-440" href="https://perl6.online/2018/01/29/40-substitution-and-balanced-brackets-in-perl-6-regexes/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-440" href="https://perl6.online/2018/01/29/40-substitution-and-balanced-brackets-in-perl-6-regexes/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-440-5afe9d7890830" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=440&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-440-5afe9d7890830" id="like-post-wrapper-139853928-440-5afe9d7890830"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

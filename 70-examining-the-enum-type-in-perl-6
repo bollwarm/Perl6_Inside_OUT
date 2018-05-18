@@ -1,0 +1,79 @@
+
+		<p>In Perl 6, you can create enumerations like this:</p>
+<pre>enum colour &lt;red orange yellow green blue violet&gt;;</pre>
+<p>Having this said, you can use the new name as a type name and create variables of that type:</p>
+<pre>my colour $c;
+
+$c = green;
+say $c;     <em># green</em>
+say $c.Int; <em># 3</em></pre>
+<p>As you would rightly expect, the type of the variable is very predictable:</p>
+<pre>say $c.^name; <em># colour</em></pre>
+<p>Now, try to find the class implementation in Rakudo sources. Surprisingly, there is no file src/core/Enum.pm, but instead, there is src/core/Enumeration.pm. Looking at that file, you cannot say how our program works. Let us dig a bit.</p>
+<p>In Grammar (src/Perl6/Grammar.nqp), you can find the following piece:</p>
+<pre>proto token type_declarator { &lt;...&gt; }
+
+token type_declarator:sym&lt;enum&gt; {
+    . . .
+}</pre>
+<p>So, the <tt>enum</tt> is not a name of the data type but a predefined keyword, one of a few that exist for type declarations (together with <tt>subset</tt> and <tt>constant</tt>).</p>
+<p>The token starts with consuming the keyword and making some preparations, which are not very interesting for us at the moment:</p>
+<pre><strong><span style="color:#0000ff;">&lt;sym&gt;</span></strong>&lt;.kok&gt;
+:my $*IN_DECL := &#39;enum&#39;;
+:my $*DOC := $*DECLARATOR_DOCS;
+{ $*DECLARATOR_DOCS := &#39;&#39; }
+:my $*POD_BLOCK;
+:my $*DECLARAND;
+{
+    my $line_no := HLL::Compiler.lineof(self.orig(), self.from(), :cache(1));
+    if $*PRECEDING_DECL_LINE &lt; $line_no {
+        $*PRECEDING_DECL_LINE := $line_no;
+        $*PRECEDING_DECL := Mu; # actual declarand comes later, in Actions::type_declarator:sym&lt;enum&gt;
+    }
+}
+&lt;.attach_leading_docs&gt;</pre>
+<p>Then, we expect either a name of the new type or a variable or nothing(?):</p>
+<pre>[
+| &lt;longname&gt;
+    {
+     . . .
+    }
+| &lt;variable&gt;
+| &lt;?&gt;
+]</pre>
+<p>The variable part is not yet implemented:</p>
+<pre>&gt; enum $x &lt;a b c&gt;
+===SORRY!=== Error while compiling:
+Variable case of enums not yet implemented. Sorry.
+at line 2</pre>
+<p>Our test program falls to the first branch:</p>
+<pre><span style="color:#0000ff;"><strong>&lt;longname&gt;</strong></span>
+  {
+      my $longname := $*W.dissect_longname($&lt;longname&gt;);
+      my @name := $longname.type_name_parts(&#39;enum name&#39;, :decl(1));
+      if $*W.already_declared($*SCOPE, self.package, $*W.cur_lexpad(), @name) {
+          $*W.throw($/, [&#39;X&#39;, &#39;Redeclaration&#39;],
+                    symbol =&gt; $longname.name(),
+          );
+      }
+  }</pre>
+<p>For example, if you declare <tt>enum colour</tt>, then the <tt>$longname.name()</tt> returns colour <tt>colour</tt>. Thus, we extracted it. (Also notice how <a href="https://perl6.online/2018/03/01/67-redeclaration-of-a-symbol/">redeclaration</a> is handled.)</p>
+<p>Finally, here is the rest of the token body:</p>
+<pre>{ $*IN_DECL := &#39;&#39;; }
+&lt;.ws&gt;
+&lt;trait&gt;*
+:my %*MYSTERY;
+[ &lt;?[&lt;(«]&gt; &lt;term&gt; &lt;.ws&gt; || &lt;.panic: &#39;An enum must supply an expression using &lt;&gt;, «», or ()&#39;&gt; ]
+&lt;.explain_mystery&gt; &lt;.cry_sorrows&gt;</pre>
+<p>Indeed, we need to explain the mystery here. So, there’s room for optional traits, fine:</p>
+<pre>&lt;trait&gt;*</pre>
+<p>There’s another construct that should match to avoid panic messages:</p>
+<pre>&lt;?[&lt;(«]&gt; &lt;term&gt; &lt;.ws&gt;</pre>
+<p>Don’t be confused by the different number of opening and closing angle brackets here. The first part is a forward assertion with a character class:</p>
+<pre>&lt;?  [&lt;(«]  &gt;</pre>
+<p>It looks if there is one of the <tt>&lt;</tt>, <tt>(</tt>, or <tt>«</tt> opening bracket at this position. The panic message is displayed if it is not found there.</p>
+<p>Our next expected guest is a term. Obviously, the whole part <tt>&lt;red orange . . . violet&gt;</tt> matches with it. Not that bad; what we need to do now is to understand what happens next.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-693" href="https://perl6.online/2018/03/03/70-examining-the-enum-type-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-693" href="https://perl6.online/2018/03/03/70-examining-the-enum-type-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-693" href="https://perl6.online/2018/03/03/70-examining-the-enum-type-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-693-5afe9d4614d07" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=693&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-693-5afe9d4614d07" id="like-post-wrapper-139853928-693-5afe9d4614d07"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

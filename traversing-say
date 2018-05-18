@@ -1,0 +1,91 @@
+
+		<p>Welcome back! Today, we’ll try to do a simple thing using some knowledge from the previous days.</p>
+<p>Compare the two lines:</p>
+<pre>say &#39;Hello, World&#39;;
+&#39;Hello, World&#39;.say;</pre>
+<p>Is there any difference between them? Well, of course. Although the result is the same in both cases, syntactically they differ a lot.</p>
+<p>In the first case, <tt>say</tt> is a stand-alone function that gets a string argument. In the second case, the <tt>say</tt> method is called on a string.</p>
+<p>Compare the two lines on the parse level. First, as a function call:</p>
+<pre>- statementlist: say &#39;Hello, World&#39;
+  - statement: 1 matches
+    - EXPR: say &#39;Hello, World&#39;
+      - args:  &#39;Hello, World&#39;
+        - arglist: &#39;Hello, World&#39;
+          - EXPR: &#39;Hello, World&#39;
+            - value: &#39;Hello, World&#39;
+              - quote: &#39;Hello, World&#39;
+                - nibble: Hello, World
+      - longname: say
+        - name: say
+          - identifier: say
+          - morename:  isa NQPArray
+        - colonpair:  isa NQPArray</pre>
+<p>Second, as a method:</p>
+<pre>- statementlist: &#39;Hello, World&#39;.say
+  - statement: 1 matches
+    - EXPR: .say
+      - 0: &#39;Hello, World&#39;
+        - value: &#39;Hello, World&#39;
+          - quote: &#39;Hello, World&#39;
+            - nibble: Hello, World
+      - dotty: .say
+        - sym: .
+        - dottyop: say
+          - methodop: say
+            - longname: say
+              - name: say
+                - identifier: say
+                - morename:  isa NQPArray
+              - colonpair:  isa NQPArray
+        - O: 
+      - postfix_prefix_meta_operator:  isa NQPArray
+      - OPER: .say
+        - sym: .
+        - dottyop: say
+          - methodop: say
+            - longname: say
+              - name: say
+                - identifier: say
+                - morename:  isa NQPArray
+              - colonpair:  isa NQPArray
+        - O:</pre>
+<p>Although the result of the two lines is the same, the parse trees look different, which is quite explainable. Instead of examining the parse trees, let us try locating the place where Perl 6 prints the string.</p>
+<h2>The say sub</h2>
+<p>This function is a multi-sub, which is defined in the src/core/io_operators.pm file in four different variants:</p>
+<pre>proto sub say(|) {*}
+multi sub say() { . . . }
+multi sub say(Junction:D \j) { . . . }
+multi sub say(Str:D \x) { . . . }
+multi sub say(\x) { . . . }</pre>
+<p>It should be quite logically that <tt>say &#39;Hello, World&#39;</tt> is using the <tt>say(Str:D)</tt> function. To prove it, add a printing instruction as usual:</p>
+<pre>multi sub say(Str:D \x) {
+    <strong>nqp::say(&#39;say(Str:D \x)&#39;);</strong>
+    my $out := $*OUT;
+    $out.print(nqp::concat(nqp::unbox_s(x),$out.nl-out));
+}</pre>
+<p>Be very careful here not to type it like this:</p>
+<pre>say(&#39;say(Str:D \x)&#39;);</pre>
+<p>I did that mistake and faced an infinite loop that wanted all CPU and memory resources because our additional instruction used the same variant <tt>say(Str:D)</tt> for a defined string. Even more, the real printing never happened as the <tt>$out.print</tt> method is called a bit later and is never reached.</p>
+<p>Using the <tt>nqp::</tt> namespace easily bypasses the problem.</p>
+<pre>$ ./perl6 -e&#39;say &quot;Hello, World&quot;&#39;
+say(Str:D \x)
+Hello, World</pre>
+<h2>The say method</h2>
+<p>Now, let’s try guessing where the <tt>say</tt> method can be located. I am talking about our second one-liner, <tt>&#39;Hello, World&#39;.say</tt>. The first idea is to look for it in src/core/Str.pm, although you will not see it there.</p>
+<p>The method is located in the grandgrandparent class Mu (Str←Cool←Any←Mu). You may be surprised to see how it looks like:</p>
+<pre>proto method say(|) {*}
+multi method say() { say(self) }</pre>
+<p>The fact that it has a prototype and that it is a multi-sub, although there is only one implementation, is not that important now. What is interesting, is that the method barely calls the <tt>say</tt> sub, which we examined in the previous section.</p>
+<p>Add another <tt>nqp::say</tt> to the method of Mu:</p>
+<pre>multi method say() { <strong>nqp::say(&#39;Mu.say()&#39;);</strong> say(self) }</pre>
+<p>Now, run the second program:</p>
+<pre>$ ./perl6 -e&#39;&quot;Hello, World&quot;.say&#39;
+Mu.say()
+say(Str:D \x)
+Hello, World</pre>
+<p>As you see, we ended up in the same function. Although the difference between the two parse trees was quite big, the actual work was done by the same function in the end.</p>
+<p>That’s all for today. Tomorrow, let’s examine other variants of the <tt>say</tt> sub.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-165" href="https://perl6.online/2018/01/03/traversing-say/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-165" href="https://perl6.online/2018/01/03/traversing-say/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-165" href="https://perl6.online/2018/01/03/traversing-say/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-165-5afe9daa3ea8e" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=165&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-165-5afe9daa3ea8e" id="like-post-wrapper-139853928-165-5afe9daa3ea8e"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

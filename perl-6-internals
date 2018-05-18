@@ -1,0 +1,465 @@
+
+		<p>What happens if you’ll try to create a new variable and immediately initialise it by itself, as shown in the following test code:</p>
+<pre>my $x = $x;</pre>
+<p>This does not work (which is expected), but Perl 6 is so kind to the user  that it gives an error message prepared especially for this case:</p>
+<pre>===SORRY!=== Error while compiling:
+<strong>Cannot use variable $x in declaration to initialize itself</strong>
+------&gt; my $x = $⏏x;
+  expecting any of:
+  term</pre>
+<p>Let us find the place in the code where the error message is triggered. This case is captured in the Grammar of Perl 6, at the place where variable is parsed:</p>
+<pre>token variable {
+    . . .
+    | &lt;sigil&gt;
+      [ $&lt;twigil&gt;=[&#39;.^&#39;] &lt;desigilname=desigilmetaname&gt;
+        | &lt;twigil&gt;? &lt;desigilname&gt; ]
+      [ &lt;?{ !$*IN_DECL &amp;&amp; $*VARIABLE &amp;&amp; $*VARIABLE eq 
+        $&lt;sigil&gt; ~ $&lt;twigil&gt; ~ $&lt;desigilname&gt; }&gt;
+          {
+              self.typed_panic: &#39;X::Syntax::Variable::Initializer&#39;, 
+              name =&gt; $*VARIABLE
+          }
+      ]?
+    . . .
+}</pre>
+<p>The condition to throw an exception is a bit wordy, but you can clearly see here that the whole variable name is checked, including both sigil and potential twigil.</p>
+<p>The exception itself is located in src/core/Exception.pm6 (notice that file extensions were changed from .pm to .pm6 recently), and it is used only for the above case:</p>
+<pre>my class X::Syntax::Variable::Initializer does X::Syntax {
+    has $.name = &#39;&lt;anon&gt;&#39;;
+    method message() {
+        &quot;Cannot use variable $!name in declaration to initialize itself&quot;
+    }
+}</pre>
+<p>And that’s all for today. Rakudo Perl 6 sources can be really transparent sometimes! 🙂</p>
+	
+
+		<p>Today, we will take a look at a few methods of the <tt>Hash</tt> class that return all hash keys or values or both:</p>
+<pre>&gt; my %h = H =&gt; &#39;Hydrogen&#39;, He =&gt; &#39;Helium&#39;, Li =&gt; &#39;Lithium&#39;;
+{H =&gt; Hydrogen, He =&gt; Helium, Li =&gt; Lithium}
+
+&gt; %h.<strong>keys</strong>;
+(H Li He)
+
+&gt; %h.<strong>values</strong>;
+(Hydrogen Lithium Helium)
+
+&gt; %h.<strong>kv</strong>;
+(H Hydrogen Li Lithium He Helium)</pre>
+<p>While you may want to go directly to the src/core/Hash.pm6 file to see the definitions of the methods, you will not find them there. The <tt>Hash</tt> class is a child of <tt>Map</tt>, and all these methods are defined in src/core/Map.pm6. Getting keys and values is simple:</p>
+<pre>multi method keys(Map:D:) {
+    Seq.new(Rakudo::Iterator.Mappy-keys(self))
+}
+
+multi method values(Map:D:) {
+    Seq.new(Rakudo::Iterator.Mappy-values(self))
+}
+
+</pre>
+<p>For the <tt>kv</tt> method, more work has to be done:</p>
+<pre>multi method kv(Map:D:) {
+    Seq.new(class :: does Rakudo::Iterator::Mappy {
+        has int $!on-value;
+
+        method pull-one() is raw {
+            . . .
+        }
+        method skip-one() {
+            . . .
+        }
+        method push-all($target --&gt; IterationEnd) {
+            . . .
+        }
+    }.new(self))
+}</pre>
+<p>As you see, the method returns a sequence that is built using an anonymous class implementing the <tt>Rakudo::Iterator::Mappy</tt> role. We already saw how this approach is used in combination with <a href="https://perl6.online/2018/02/05/47-push-all-optimisation/">defining <tt>pull-one</tt> and <tt>push-all</tt> methods</a>.</p>
+<p>Let us look at another set of methods, pairs and antipairs. One of them is simple and straightforward:</p>
+<pre>multi method pairs(Map:D:) {
+    Seq.new(self.iterator)
+}</pre>
+<p>Another one is using an intermediate class:</p>
+<pre>multi method antipairs(Map:D:) {
+    Seq.new(class :: does Rakudo::Iterator::Mappy {
+        method pull-one() {
+            . . .
+        }
+        method push-all($target --&gt; IterationEnd) {
+        . . .
+        }
+    }.new(self))
+}</pre>
+<p>Both methods produce results of the same structure:</p>
+<pre>&gt; %h.<strong>antipairs</strong>
+(Hydrogen =&gt; H Lithium =&gt; Li Helium =&gt; He)
+
+&gt; %h.<strong>pairs</strong>
+(H =&gt; Hydrogen Li =&gt; Lithium He =&gt; Helium)</pre>
+<p> </p>
+	
+
+		<p>In Perl 6, you can use superscript indices to calculate powers of numbers, for example:</p>
+<pre>&gt; 2⁵
+32
+
+&gt; 7³
+343</pre>
+<p>It also works with more than one digit in the superscript:</p>
+<pre>&gt; 10¹²
+1000000000000</pre>
+<p>You can guess that the above cases are equivalent to the following:</p>
+<pre>&gt; 2**5
+32
+&gt; 7**3
+343
+
+&gt; 10**12
+1000000000000</pre>
+<p>But the question is: How on Earth does it work? Let us find it out.</p>
+<p>For the <tt>Numeric</tt> role, the following operation is defined:</p>
+<div>
+<pre>proto sub postfix:&lt;ⁿ&gt;(Mu $, Mu $) is pure {*}
+multi sub postfix:&lt;ⁿ&gt;(\a, \b) { a ** b }</pre>
+<p>Aha, that is what we need, and the superscript notation is converted to the simple <tt>**</tt> operator here.</p>
+<p>You can visualise what exactly is passed to the operation by printing the operands:</p>
+<pre>multi sub postfix:&lt;ⁿ&gt;(\a, \b) { 
+<strong>    nqp::say(&#39;# a = &#39; ~ a);</strong>
+<strong>    nqp::say(&#39;# b = &#39; ~ b);</strong>
+    a ** b 
+}</pre>
+<p>In this case, you’ll see the following output for the test examples above:</p>
+<pre>&gt; 2⁵
+# a = 2
+# b = 5
+
+&gt; 10¹²
+# a = 10
+# b = 12</pre>
+<p>Now, it is time to understand how the postfix that extracts superscripts works. Its name, <tt>ⁿ</tt>, written in superscript, should not mislead you. This is not a magic trick of the parser, this is just a name of the symbol, and it can be found in the Grammar:</p>
+<pre>token postfix:sym&lt;ⁿ&gt; {
+    &lt;sign=[⁻⁺¯]&gt;? &lt;dig=[⁰¹²³⁴⁵⁶⁷⁸⁹]&gt;+ &lt;O(|%autoincrement)&gt;
+}</pre>
+<p>You see, this symbol is a sequence of superscripted digits with an optional sign before them. (Did you think of a sign before we reached this moment in the Grammar?)</p>
+<p>Let us try negative powers, by the way:</p>
+<pre>&gt; say 4⁻³
+# a = 4
+# b = -3
+0.015625</pre>
+<p>Also notice that the whole construct is treated as a postfix operator. It can also be applied to variables, for example:</p>
+<pre>&gt; my $x = 9
+9
+&gt; say $x²
+# a = 9
+# b = 2
+81</pre>
+<p>So, a digit in superscript is not a part of the variable’s name.</p>
+<p>OK, the final part of the trilogy, the code in Actions, which parses the index:</p>
+<pre>method postfix:sym&lt;ⁿ&gt;($/) {
+    my $Int := $*W.find_symbol([&#39;Int&#39;]);
+    my $power := nqp::box_i(0, $Int);
+    <strong>for $&lt;dig&gt; {</strong>
+<strong>        $power := nqp::add_I(</strong>
+<strong>           nqp::mul_I($power, nqp::box_i(10, $Int), $Int),</strong>
+<strong>           nqp::box_i(nqp::index(&quot;⁰¹²³⁴⁵⁶⁷⁸⁹&quot;, $_), $Int),</strong>
+<strong>           $Int);</strong>
+<strong>    }</strong>
+
+    $power := nqp::neg_I($power, $Int) 
+        if $&lt;sign&gt; eq &#39;⁻&#39; || $&lt;sign&gt; eq &#39;¯&#39;;
+    make QAST::Op.new(:op&lt;call&gt;, :name(&#39;&amp;postfix:&lt;ⁿ&gt;&#39;), 
+                      $*W.add_numeric_constant($/, &#39;Int&#39;, $power));
+}</pre>
+<p>As you can see here, it scans the digits and updates the <tt>$power</tt> variable by adding the value at the next decimal position (it is selected in the code above).</p>
+<p>The available characters are listed in a string, and to get its value, the offset in the string is used. The <tt>$&lt;dig&gt;</tt> match contains a digit, you can see it in the Grammar:</p>
+<div>
+<pre>&lt;dig=[⁰¹²³⁴⁵⁶⁷⁸⁹]&gt;+</pre>
+<p> </p>
+</div>
+</div>
+	
+
+		<p>Hello! Yesterday, I was giving my <a href="http://act.yapc.eu/gpw2018/talk/7314">Perl 6 Intro course</a> at the German Perl Workshop in Gummersbash. It was a great pleasure to prepare and run this one-day course, and, while it was difficult to cover everything, we touched all main aspects of the Perl 6 language: from variables to regexes and parallel computing. Of course, it was only a top-level overview, and there was not enough time to make all the exercises. You can do them at home, here’s the <a href="https://inperl6.files.wordpress.com/2018/04/perl-6-intro-exercises.pdf" title="Perl 6 Intro - Exercises">Perl 6 Intro – Exercises</a> PDF file.</p>
+<p>Among the rest, we tried to implement the <tt>sleep</tt> method for integers. The rationale behind that is that it is possible to say:</p>
+<pre>&gt; 10.rand
+9.9456903794802</pre>
+<p>But not:</p>
+<pre>&gt; 10.sleep
+No such method &#39;sleep&#39; for invocant of type &#39;Int&#39;
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>OK, so let’s first implement the simplest form of <tt>sleep</tt> for <tt>Int</tt>s only. Go to src/core/Int.pm6 and add the following:</p>
+<pre>my class Int does Real {
+
+<strong>    method sleep() {</strong>
+<strong>        nqp::sleep($!value);</strong>
+<strong>    }</strong></pre>
+<p>Here’s a <a href="https://www.facebook.com/groups/perl6/permalink/2071209013145447/">photo from the screen</a>:</p>
+<p><img alt="29695497_10156162162038326_7927919948344098147_n" class="  wp-image-700 aligncenter" data-attachment-id="700" data-comments-opened="1" data-image-description="" data-image-meta="{&quot;aperture&quot;:&quot;0&quot;,&quot;credit&quot;:&quot;&quot;,&quot;camera&quot;:&quot;&quot;,&quot;caption&quot;:&quot;&quot;,&quot;created_timestamp&quot;:&quot;0&quot;,&quot;copyright&quot;:&quot;&quot;,&quot;focal_length&quot;:&quot;0&quot;,&quot;iso&quot;:&quot;0&quot;,&quot;shutter_speed&quot;:&quot;0&quot;,&quot;title&quot;:&quot;&quot;,&quot;orientation&quot;:&quot;0&quot;}" data-image-title="29695497_10156162162038326_7927919948344098147_n" data-large-file="https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=502&amp;h=498?w=960" data-medium-file="https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=502&amp;h=498?w=300" data-orig-file="https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=502&amp;h=498" data-orig-size="960,952" data-permalink="https://perl6.online/2018/04/04/71-implementing-int-sleep/29695497_10156162162038326_7927919948344098147_n/" height="498" sizes="(max-width: 502px) 100vw, 502px" src="https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=502&amp;h=498" srcset="https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=502&amp;h=498 502w, https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=150&amp;h=150 150w, https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=300&amp;h=298 300w, https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg?w=768&amp;h=762 768w, https://inperl6.files.wordpress.com/2018/04/29695497_10156162162038326_7927919948344098147_n.jpg 960w" width="502"></p>
+<p>There is no declaration of the <tt>$!value</tt> attribute in this file, but we know that it can be found somewhere in Perl6/Metamodel/BOOTSTRAP.nqp:</p>
+<pre># class Int is Cool {
+# has bigint $!value is box_target;
+Int.HOW.add_parent(Int, Cool);
+<strong>Int.HOW.add_attribute(Int,
+</strong><strong>    BOOTSTRAPATTR.new(:name&lt;$!value&gt;, :type(bigint), 
+                      :box_target(1), :package(Int)));
+</strong>Int.HOW.set_boolification_mode(Int, 6);
+Int.HOW.publish_boolification_spec(Int);
+Int.HOW.compose_repr(Int);</pre>
+<p>Compile and run. The desired code works now:</p>
+<pre>&gt; 3.sleep
+<em># sleeping 3 seconds</em>
+&gt;</pre>
+<p>What can be changed here? The first idea is to allow non-integer numbers as the delay duration. As <tt>Int</tt> does the <tt>Real</tt> role, just move the method to src/core/Real.pm and get the value using the <tt>Num</tt> method instead of reading <tt>$!value</tt> directly (there is no such attribute in the <tt>Real</tt> role):</p>
+<pre>my role Real does Numeric {
+
+<strong>    method sleep() { </strong>
+<strong>        nqp::sleep(self.Num);</strong>
+<strong>    }</strong></pre>
+<p>Now it also works with rationals and floating-point numbers:</p>
+<pre>&gt; 2.sleep
+2
+
+&gt; 3.14.sleep
+3.14
+
+&gt; pi.sleep
+3.14159265358979</pre>
+<p>Before wrapping it up, let us take a look at the body of the <tt>sleep</tt> <em>subroutine</em>. It is defined in src/core/Date.pm6:</p>
+<pre>proto sub sleep(|) {*}
+multi sub sleep(--&gt; Nil) { sleep(*) }
+multi sub sleep($seconds --&gt; Nil) {
+    # 1e9 seconds is a large enough value that still makes VMs sleep
+    # larger values cause nqp::sleep() to exit immediatelly (esp. on 32-bit)
+    if nqp::istype($seconds,Whatever) || $seconds == Inf {
+        nqp::sleep(1e9) while True;
+    }
+    elsif $seconds &gt; 1e9 {
+        nqp::sleep($_) for gather {
+            1e9.take xx ($seconds / 1e9);
+            take $seconds - 1e9 * ($seconds / 1e9).Int;
+        }
+    }
+    elsif $seconds &gt; 0e0 {
+        nqp::sleep($seconds.Num);
+    }
+}</pre>
+<p>The code is very clear and does not need any comments.</p>
+<p>And maybe just to see why our modified Rakudo printed the time after sleep in the tests above, let’s refer to the documentation of NQP to see that its <tt>sleep</tt> function’s return value is the number of seconds:</p>
+<pre>## sleep
+* `sleep(num $seconds --&gt; num)`
+
+Sleep for the given number of seconds (no guarantee is made
+how exact the time sleeping is spent.)
+Returns the passed in number.</pre>
+<p> </p>
+	
+
+		<p>In Perl 6, you can create enumerations like this:</p>
+<pre>enum colour &lt;red orange yellow green blue violet&gt;;</pre>
+<p>Having this said, you can use the new name as a type name and create variables of that type:</p>
+<pre>my colour $c;
+
+$c = green;
+say $c;     <em># green</em>
+say $c.Int; <em># 3</em></pre>
+<p>As you would rightly expect, the type of the variable is very predictable:</p>
+<pre>say $c.^name; <em># colour</em></pre>
+<p>Now, try to find the class implementation in Rakudo sources. Surprisingly, there is no file src/core/Enum.pm, but instead, there is src/core/Enumeration.pm. Looking at that file, you cannot say how our program works. Let us dig a bit.</p>
+<p>In Grammar (src/Perl6/Grammar.nqp), you can find the following piece:</p>
+<pre>proto token type_declarator { &lt;...&gt; }
+
+token type_declarator:sym&lt;enum&gt; {
+    . . .
+}</pre>
+<p>So, the <tt>enum</tt> is not a name of the data type but a predefined keyword, one of a few that exist for type declarations (together with <tt>subset</tt> and <tt>constant</tt>).</p>
+<p>The token starts with consuming the keyword and making some preparations, which are not very interesting for us at the moment:</p>
+<pre><strong><span style="color:#0000ff;">&lt;sym&gt;</span></strong>&lt;.kok&gt;
+:my $*IN_DECL := &#39;enum&#39;;
+:my $*DOC := $*DECLARATOR_DOCS;
+{ $*DECLARATOR_DOCS := &#39;&#39; }
+:my $*POD_BLOCK;
+:my $*DECLARAND;
+{
+    my $line_no := HLL::Compiler.lineof(self.orig(), self.from(), :cache(1));
+    if $*PRECEDING_DECL_LINE &lt; $line_no {
+        $*PRECEDING_DECL_LINE := $line_no;
+        $*PRECEDING_DECL := Mu; # actual declarand comes later, in Actions::type_declarator:sym&lt;enum&gt;
+    }
+}
+&lt;.attach_leading_docs&gt;</pre>
+<p>Then, we expect either a name of the new type or a variable or nothing(?):</p>
+<pre>[
+| &lt;longname&gt;
+    {
+     . . .
+    }
+| &lt;variable&gt;
+| &lt;?&gt;
+]</pre>
+<p>The variable part is not yet implemented:</p>
+<pre>&gt; enum $x &lt;a b c&gt;
+===SORRY!=== Error while compiling:
+Variable case of enums not yet implemented. Sorry.
+at line 2</pre>
+<p>Our test program falls to the first branch:</p>
+<pre><span style="color:#0000ff;"><strong>&lt;longname&gt;</strong></span>
+  {
+      my $longname := $*W.dissect_longname($&lt;longname&gt;);
+      my @name := $longname.type_name_parts(&#39;enum name&#39;, :decl(1));
+      if $*W.already_declared($*SCOPE, self.package, $*W.cur_lexpad(), @name) {
+          $*W.throw($/, [&#39;X&#39;, &#39;Redeclaration&#39;],
+                    symbol =&gt; $longname.name(),
+          );
+      }
+  }</pre>
+<p>For example, if you declare <tt>enum colour</tt>, then the <tt>$longname.name()</tt> returns colour <tt>colour</tt>. Thus, we extracted it. (Also notice how <a href="https://perl6.online/2018/03/01/67-redeclaration-of-a-symbol/">redeclaration</a> is handled.)</p>
+<p>Finally, here is the rest of the token body:</p>
+<pre>{ $*IN_DECL := &#39;&#39;; }
+&lt;.ws&gt;
+&lt;trait&gt;*
+:my %*MYSTERY;
+[ &lt;?[&lt;(«]&gt; &lt;term&gt; &lt;.ws&gt; || &lt;.panic: &#39;An enum must supply an expression using &lt;&gt;, «», or ()&#39;&gt; ]
+&lt;.explain_mystery&gt; &lt;.cry_sorrows&gt;</pre>
+<p>Indeed, we need to explain the mystery here. So, there’s room for optional traits, fine:</p>
+<pre>&lt;trait&gt;*</pre>
+<p>There’s another construct that should match to avoid panic messages:</p>
+<pre>&lt;?[&lt;(«]&gt; &lt;term&gt; &lt;.ws&gt;</pre>
+<p>Don’t be confused by the different number of opening and closing angle brackets here. The first part is a forward assertion with a character class:</p>
+<pre>&lt;?  [&lt;(«]  &gt;</pre>
+<p>It looks if there is one of the <tt>&lt;</tt>, <tt>(</tt>, or <tt>«</tt> opening bracket at this position. The panic message is displayed if it is not found there.</p>
+<p>Our next expected guest is a term. Obviously, the whole part <tt>&lt;red orange . . . violet&gt;</tt> matches with it. Not that bad; what we need to do now is to understand what happens next.</p>
+	
+
+		<p>In Perl 6, you can ask the sequence operator to build a desired sequence for you. It can be arithmetic or geometric progression. All you need is to show the beginning of the sequence to Perl, for example:</p>
+<pre>.say for 3, 5 ... 11;</pre>
+<p>This prints numbers 3, 5, 7, 9, and 11. Or:</p>
+<pre>.say for 2, 4, 8 ... 64;</pre>
+<p>This code prints powers of 2 from 2 to 64: 2, 4, 8, 16, 32, and 64.</p>
+<p>I am going to try understanding how that works in Rakudo. First of all, look into the src/core/operators.pm file, which keeps a lot of different operators, including a few versions of the <tt>...</tt> operator. The one we need looks really simple:</p>
+<pre>multi sub infix:&lt;...&gt;(\a, Mu \b) {
+    Seq.new(SEQUENCE(a, b).iterator)
+}</pre>
+<p>Now, the main work is done inside the <tt>SEQUENCE</tt> sub. Before we dive there, it is important to understand what its arguments <tt>a</tt> and <tt>b</tt> receive.</p>
+<p>In the case of, say, <tt>3, 5 ... 11</tt>, the first argument is a list <tt>3, 5</tt>, and the second argument is a single value <tt>11</tt>.</p>
+<p>These values land in the parameters of the routine:</p>
+<pre>sub SEQUENCE(\left, Mu \right, :$exclude_end) {
+    . . .
+}</pre>
+<p>What happens next is not that easy to grasp. Here is a screenshot of the complete function:</p>
+<p><img alt="sequence" class=" size-large wp-image-687 aligncenter" data-attachment-id="687" data-comments-opened="1" data-image-description="" data-image-meta="{&quot;aperture&quot;:&quot;0&quot;,&quot;credit&quot;:&quot;&quot;,&quot;camera&quot;:&quot;&quot;,&quot;caption&quot;:&quot;&quot;,&quot;created_timestamp&quot;:&quot;0&quot;,&quot;copyright&quot;:&quot;&quot;,&quot;focal_length&quot;:&quot;0&quot;,&quot;iso&quot;:&quot;0&quot;,&quot;shutter_speed&quot;:&quot;0&quot;,&quot;title&quot;:&quot;&quot;,&quot;orientation&quot;:&quot;0&quot;}" data-image-title="sequence" data-large-file="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=148" data-medium-file="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=43" data-orig-file="https://inperl6.files.wordpress.com/2018/03/sequence.png" data-orig-size="1016,7042" data-permalink="https://perl6.online/2018/03/02/68-the-smartness-of-the-sequence-operator-in-perl-6-part-1/sequence/" height="1024" sizes="(max-width: 148px) 100vw, 148px" src="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=148&amp;h=1024" srcset="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=148&amp;h=1024 148w, https://inperl6.files.wordpress.com/2018/03/sequence.png?w=296&amp;h=2048 296w" width="148"></p>
+<p>It contains about 350 lines of code and includes a couple of functions. Nevertheless, let’s try.</p>
+<p>What you see first, is creating iterators for both left and right operands:</p>
+<pre>my \righti := (nqp::iscont(right) ?? right !! [right]).iterator;</pre>
+<pre>my \lefti := left.iterator;</pre>
+<p>Then, the code loops over the left operand and builds an array <tt>@tail</tt> out of its data:</p>
+<pre>while !((my \value := lefti.pull-one) =:= IterationEnd) {
+    $looped = True;
+    if nqp::istype(value,Code) { $code = value; last }
+    if $end_code_arity != 0 {
+        @end_tail.push(value);
+        if +@end_tail &gt;= $end_code_arity {
+            @end_tail.shift xx (@end_tail.elems - $end_code_arity)
+                unless $end_code_arity ~~ -Inf;
+
+            if $endpoint(|@end_tail) {
+                $stop = 1;
+                @tail.push(value) unless $exclude_end;
+                last;
+            }
+        }
+    }
+    elsif value ~~ $endpoint {
+        $stop = 1;
+        @tail.push(value) unless $exclude_end;
+        last;
+    }
+    @tail.push(value);
+}</pre>
+<p>I leave you reading and understand this piece of code as an exercise, but for the given example, the <tt>@tail</tt> array will just contain two values: 3 and 5.</p>
+<pre>&gt; .say for 3,5...11;
+<span style="color:#800080;">multi sub infix:&lt;...&gt;(\a, Mu \b)</span>
+<span style="color:#800080;">List    <span style="color:#008000;"># nqp::say(a.^name);</span></span>
+<span style="color:#800080;">~~3     <span style="color:#008000;"># nqp::say(&#39;~~&#39; ~ value);</span></span>
+<span style="color:#800080;">~~5     <span style="color:#008000;"># nqp::say(&#39;~~&#39; ~ value);</span></span>
+<span style="color:#800080;">elems=2 <span style="color:#008000;"># nqp::say(&#39;elems=&#39;~@tail.elems);</span></span>
+<span style="color:#800080;">0=3     <span style="color:#008000;"># nqp::say(&#39;0=&#39;~@tail[0]);</span></span>
+<span style="color:#800080;">1=5     <span style="color:#008000;"># nqp::say(&#39;1=&#39;~@tail[1]);</span></span></pre>
+<p>This output shows some debug data print outs that I added to the source code to see how it works. The green comments show the corresponding print instructions.</p>
+<p>That’s it for today. See you tomorrow with more stuff from the sequence operator. Tomorrow, we have to understand how the list <tt>3, 5</tt> tells Perl 6 to generate increasing values with step 1.</p>
+	
+
+		<p>Today, we will see how Perl 6 helps to keep our programs better.</p>
+<h2>Redeclaration of a variable</h2>
+<p>Examine the following program:</p>
+<pre>my $x = 1;
+my $x = 2;
+say $x;</pre>
+<p>You can immediately see that this program is not entirely correct. Either we meant to assign a new value to <tt>$x</tt> or to create a new variable with a different name. In either case, compiler has no idea and complains:</p>
+<pre>$ perl6 redecl.pl 
+Potential difficulties:
+    <span style="color:#0000ff;">Redeclaration of symbol &#39;$x&#39;</span>
+    at /Users/ash/redecl.pl:2
+    ------&gt; my $x⏏ = 2;
+2</pre>
+<p>You see a runtime warning, while the program does not stop. Let us find out where it happens in the source code.</p>
+<p>When you declare a variable, the grammar matches the corresponding text and calls the <tt>variable_declarator</tt> action method. It is quite compact but nevertheless I will not quote it completely.</p>
+<pre>class Perl6::Actions is HLL::Actions does STDActions {
+    . . .
+
+    method variable_declarator($/) {
+        . . .
+    }
+
+    . . .
+}</pre>
+<p>By the way, you can see here how Perl 6 treats a variable name:</p>
+<pre> my $past := $&lt;variable&gt;.ast;
+ my $sigil := $&lt;variable&gt;&lt;sigil&gt;;
+ my $twigil := $&lt;variable&gt;&lt;twigil&gt;;
+ my $desigilname := ~$&lt;variable&gt;&lt;desigilname&gt;;
+ <span style="color:#0000ff;"><strong>my $name := $sigil ~ $twigil ~ $desigilname;</strong></span></pre>
+<p>The name of a variable is a concatenation of a sigil, a twigil and an identifier (which is called desigiled name in the code).</p>
+<p>Then, if we’ve got a proper variable name, check it against an existing lexpad:</p>
+<pre>if $&lt;variable&gt;&lt;desigilname&gt; {
+    my $lex := $*W.cur_lexpad();
+    <span style="color:#0000ff;">if $lex.symbol($name) {</span>
+<span style="color:#0000ff;">        $/.typed_worry(&#39;X::Redeclaration&#39;, symbol =&gt; $name);</span>
+<span style="color:#0000ff;">    }</span></pre>
+<p>If the name is known, generate a warning. If everything is fine, create a variable declaration:</p>
+<pre>make declare_variable($/, $past, ~$sigil, ~$twigil, $desigilname,
+                      $&lt;trait&gt;, $&lt;semilist&gt;, :@post);</pre>
+<h2>Redeclaration of a routine</h2>
+<p>Now, let us try to re-create a subroutine:</p>
+<pre>sub f() {}
+sub f() {}</pre>
+<p>This may only be OK if the subs are declared as multi-subs. With the given code, the program will not even compile:</p>
+<pre>===SORRY!=== Error while compiling /Users/ash/redecl.pl
+Redeclaration of routine &#39;f&#39; <span style="color:#0000ff;">(did you mean to declare a multi-sub?)</span>
+at /Users/ash/redecl.pl:6
+------&gt; sub f() {}⏏&lt;EOL&gt;</pre>
+<p>This time, it happens in a much more complicated method, <tt>routine_def</tt>:</p>
+<pre>method routine_def($/) {
+     . . .
+
+     my $predeclared := $outer.symbol($name);
+     if $predeclared {
+         my $Routine := $*W.find_symbol([&#39;Routine&#39;], :setting-only);
+         unless nqp::istype( $predeclared&lt;value&gt;, $Routine)
+                &amp;&amp; nqp::getattr_i($predeclared&lt;value&gt;, $Routine, &#39;$!yada&#39;) {
+              <span style="color:#0000ff;">$*W.throw($/, [&#39;X&#39;, &#39;Redeclaration&#39;],</span>
+<span style="color:#0000ff;">                        symbol =&gt; ~$&lt;deflongname&gt;.ast,</span>
+<span style="color:#0000ff;">                        what =&gt; &#39;routine&#39;,</span>
+<span style="color:#0000ff;">              );</span>
+         }
+     }</pre>
+<h2>The exception</h2>
+<p>The code of the exception is rather simple. Here it is:</p>
+<pre>my class X::Redeclaration does X::Comp {
+    has $.symbol;
+    has $.postfix = &#39;&#39;;
+    has $.what = &#39;symbol&#39;;
+    method message() {
+        &quot;Redeclaration of $.what &#39;$.symbol&#39;&quot;
+        ~ (&quot; $.postfix&quot; if $.postfix)
+        ~ (&quot; (did you mean to declare a multi-sub?)&quot; if $.what eq &#39;routine&#39;);
+    }
+}</pre>
+<p>As you see, depending on the value of <tt>$.what</tt>, it prints either a short message or adds a suggestion to use the <tt>multi</tt> keyword.</p>
+	

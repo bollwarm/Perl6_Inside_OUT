@@ -1,0 +1,74 @@
+
+		<p>Welcome to the new year! Today, let us switch for a while from the discussion about obsolete messages to something different.</p>
+<h2>Stages</h2>
+<p>If you followed the exercises in the previous posts, you might have noticed that some statistics was printed in the console when compiling Rakudo:</p>
+<pre>Stage start      :   0.000
+Stage parse      :  44.914
+Stage syntaxcheck:   0.000
+Stage ast        :   0.000
+Stage optimize   :   4.245
+Stage mast       :   9.476
+Stage mbc        :   0.200</pre>
+<p>You could have also noticed that the bigger the file you changed, the slower it is compiled, up to dozens of seconds when you modify Grammar.pm.</p>
+<p>It is also possible to see the statistics for your own programs. The <tt>--stagestats</tt> command-line option does the job:</p>
+<pre>$ ./perl6 --stagestats -e&#39;say 42&#39;
+Stage start      :   0.000
+Stage parse      :   0.065
+Stage syntaxcheck:   0.000
+Stage ast        :   0.000
+Stage optimize   :   0.001
+Stage mast       :   0.003
+Stage mbc        :   0.000
+Stage moar       :   0.000
+42</pre>
+<p>So, let’s look at these stages. Roughly, half of them is about Perl 6, and half is about MoarVM. In the case Rakudo is configured to work with the JVM backend, the output will differ in the second half.</p>
+<p>The Perl 6 part is clearly visible in the src/main.nqp file:</p>
+<pre># Create and configure compiler object.
+my $comp := Perl6::Compiler.new();
+$comp.language(&#39;perl6&#39;);
+<strong>$comp.parsegrammar(Perl6::Grammar);</strong>
+<strong>$comp.parseactions(Perl6::Actions);</strong>
+<strong>$comp.addstage(&#39;syntaxcheck&#39;, :before);</strong>
+<strong>$comp.addstage(&#39;optimize&#39;, :after);</strong>
+hll-config($comp.config);
+nqp::bindhllsym(&#39;perl6&#39;, &#39;$COMPILER_CONFIG&#39;, $comp.config);</pre>
+<p>Look at the selected lines. If you have played with Perl 6 Grammars, you know that big grammars are usually split into two parts: the grammar itself and the actions. The Perl 6 compiler does exactly the same thing for the Perl 6 grammar. There are two files: src/Perl6/Grammar.nqp and src/Perl6/Actions.nqp.</p>
+<p>When looking at src/main.nqp, it is not quite clear that there are eight stages. Add the following line to the file:</p>
+<pre>for ($comp.stages()) { nqp::say($_) }</pre>
+<p>Now, recompile Rakudo and run any program:</p>
+<pre>$ ./perl6 -e&#39;say 42&#39;
+start
+parse
+syntaxcheck
+ast
+optimize
+mast
+mbc
+moar
+42</pre>
+<p>Here they are.</p>
+<p>The names of the first three stages—<em>start</em>, <em>parse</em>, and <em>syntaxcheck</em>—are quite self-explanatory. The <em>ast</em> stage is the stage of building an abstract syntax tree, which is then optimized in the <em>optimize</em> stage.</p>
+<p>At this point, your Perl 6 program has been transformed into the abstract syntax tree and is about to be passed to the backend, MoarVM virtual machine in our case. The stages names start with <em>m</em>. The <em>mast</em> stage is the stage of the MoarVM assembly (not abstract) syntax tree, <em>mbc</em> stands for MoarVM bytecode and <em>moar</em> is when the VM executes the code.</p>
+<h2>Targets</h2>
+<p>Now that we know the stages of the Perl 6 program workflow, let’s make use of them. The <tt>--target</tt> option lets the compiler to stop at the given stage and display the result of it. This option supports the following values: <tt>parse</tt>, <tt>syntaxcheck</tt>, <tt>ast</tt>, <tt>optimize</tt>, and <tt>mast</tt>. With those options, Rakudo prints the output as a tree, and you can see how the program changes at different stages.</p>
+<p>Even for small programs, the output, especially with the abstract syntax tree or an assembly tree of the VM is quite verbose. Let’s look at the parse tree of the ‘Hello, World!’ program, for example:</p>
+<pre>$ ./perl6 --target=parse -e&#39;say &quot;Hello, World!&quot;&#39;
+- statementlist: say &quot;Hello, World!&quot;
+  - statement: 1 matches
+    - EXPR: say &quot;Hello, World!&quot;
+      - args:  &quot;Hello, World!&quot;
+        - arglist: &quot;Hello, World!&quot;
+          - EXPR: &quot;Hello, World!&quot;
+            - value: &quot;Hello, World!&quot;
+              - quote: &quot;Hello, World!&quot;
+                - nibble: Hello, World!
+      - longname: say
+        - name: say
+          - identifier: say
+          - morename:  isa NQPArray
+        - colonpair:  isa NQPArray</pre>
+<p>All the names here correspond to rules, tokens, or methods of the Grammar. You can find them in src/Perl6/Grammar.nqp. As an exercise, try predicting if the name is a method, or a rule, or a token. Say, a <tt>value</tt> should be a token, as it is supposed to be a compact string, while a <tt>statementlist</tt> is a rule.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-126" href="https://perl6.online/2017/12/31/compiler-stages-and-targets/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-126" href="https://perl6.online/2017/12/31/compiler-stages-and-targets/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-126" href="https://perl6.online/2017/12/31/compiler-stages-and-targets/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-126-5afe9db19277e" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=126&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-126-5afe9db19277e" id="like-post-wrapper-139853928-126-5afe9db19277e"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,37 @@
+
+		<p>What happens if you’ll try to create a new variable and immediately initialise it by itself, as shown in the following test code:</p>
+<pre>my $x = $x;</pre>
+<p>This does not work (which is expected), but Perl 6 is so kind to the user  that it gives an error message prepared especially for this case:</p>
+<pre>===SORRY!=== Error while compiling:
+<strong>Cannot use variable $x in declaration to initialize itself</strong>
+------&gt; my $x = $⏏x;
+  expecting any of:
+  term</pre>
+<p>Let us find the place in the code where the error message is triggered. This case is captured in the Grammar of Perl 6, at the place where variable is parsed:</p>
+<pre>token variable {
+    . . .
+    | &lt;sigil&gt;
+      [ $&lt;twigil&gt;=[&#39;.^&#39;] &lt;desigilname=desigilmetaname&gt;
+        | &lt;twigil&gt;? &lt;desigilname&gt; ]
+      [ &lt;?{ !$*IN_DECL &amp;&amp; $*VARIABLE &amp;&amp; $*VARIABLE eq 
+        $&lt;sigil&gt; ~ $&lt;twigil&gt; ~ $&lt;desigilname&gt; }&gt;
+          {
+              self.typed_panic: &#39;X::Syntax::Variable::Initializer&#39;, 
+              name =&gt; $*VARIABLE
+          }
+      ]?
+    . . .
+}</pre>
+<p>The condition to throw an exception is a bit wordy, but you can clearly see here that the whole variable name is checked, including both sigil and potential twigil.</p>
+<p>The exception itself is located in src/core/Exception.pm6 (notice that file extensions were changed from .pm to .pm6 recently), and it is used only for the above case:</p>
+<pre>my class X::Syntax::Variable::Initializer does X::Syntax {
+    has $.name = &#39;&lt;anon&gt;&#39;;
+    method message() {
+        &quot;Cannot use variable $!name in declaration to initialize itself&quot;
+    }
+}</pre>
+<p>And that’s all for today. Rakudo Perl 6 sources can be really transparent sometimes! 🙂</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-732" href="https://perl6.online/2018/04/10/75-my-x-x-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-732" href="https://perl6.online/2018/04/10/75-my-x-x-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-732" href="https://perl6.online/2018/04/10/75-my-x-x-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-732-5afe9d378b1ad" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=732&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-732-5afe9d378b1ad" id="like-post-wrapper-139853928-732-5afe9d378b1ad"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

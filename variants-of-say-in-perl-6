@@ -1,0 +1,62 @@
+
+		<p>Yesterday, we saw four different variants of the multi sub called <tt>say</tt>. Today, let’s look at them more precisely. The functions are located in the src/core/io_operators.pm file.</p>
+<p>Start with the first and the simplest one:</p>
+<pre>multi sub say() { $*OUT.print-nl }</pre>
+<p>It just prints the newline to the <tt>$*OUT</tt> stream. Probably, it would be wise mentioning that parentheses are required in the call:</p>
+<pre>$ ./perl6 -e&#39;say&#39;
+===SORRY!===
+Argument to &quot;say&quot; seems to be malformed
+at -e:1
+------&gt; say⏏</pre>
+<p>The following code is correct:</p>
+<pre class="p1"><span class="s1">$ ./perl6 -e&#39;say()&#39;</span></pre>
+<p>Move on to the sub that expects a defined string:</p>
+<pre>multi sub say(Str:D \x) {    
+    my $out := $*OUT;
+    $out.print(nqp::concat(nqp::unbox_s(x),$out.nl-out));
+}</pre>
+<p>Even if not everything is clear here, the general idea can be seen: this function passes its argument to the <tt>print</tt> method if <tt>$*OUT</tt> (which equals to STDIN by default) and adds a new line in the end.</p>
+<p>The next variant is suitable for the variables of other types:</p>
+<pre>multi sub say(\x) {
+    my $out := $*OUT;
+    $out.print(nqp::concat(nqp::unbox_s(x.gist),$out.nl-out));
+}</pre>
+<p>Can you spot the difference with the previous sub?</p>
+<p>It is <tt>x.gist</tt> instead of <tt>x</tt>. In the case of a string, there is no need to stringify it. In all other cases, say, for integers, the <tt>gist</tt> method is called. We already talked <a href="https://perl6.online/2017/12/22/bool-1/">about the <tt>gist</tt> method of the Bool class</a>. That’s how the call of <tt>say</tt> with a Boolean argument gets a string representation of it: its <tt>gist</tt> method just returns a string, either ‘True’ or ‘False’.</p>
+<p>OK, one more variant for calls with multiple arguments:</p>
+<pre>multi sub say(**@args is raw) {
+    my str $str;
+    my $iter := @args.iterator;
+    nqp::until(
+        nqp::eqaddr(($_ := $iter.pull-one), IterationEnd),
+        $str = nqp::concat($str, nqp::unbox_s(.gist)));
+    my $out := $*OUT;
+    $out.print(nqp::concat($str,$out.nl-out));
+}</pre>
+<p>Well, it looks complex but again, the main idea is visible with the naked eye: iterate over all arguments, concatenate them and print the resulting string with a newline after it:</p>
+<pre>$ ./perl6 -e&#39;say(1, 2, 3)&#39;
+say(**@args is raw)
+123</pre>
+<p>I would avoid digging in into the details of the NQP calls in this subroutine for now. Especially, if you compare the implementation of <tt>say</tt> with similar functions <tt>print</tt> and <tt>put</tt>:</p>
+<pre>multi sub print(**@args is raw) { $*OUT.print: @args.join }
+
+multi sub put(**@args is raw) {
+    my $out := $*OUT;
+    $out.print: @args.join ~ $out.nl-out
+}</pre>
+<p>Finally, the variant of <tt>say</tt> for junctions:</p>
+<pre>multi sub say(Junction:D \j) {
+    j.THREAD(&amp;say)
+}</pre>
+<p>In this implementation, printing a junction means creating a junction, each branch of which is a call of <tt>say</tt> with the corresponding value. So, <tt>say(1|2)</tt> is something equivalent to <tt>say(1) | say(2)</tt>, and I assume that the result that you see in the console may be different in each run.</p>
+<pre>$ ./perl6 -e&#39;say 1|2&#39;
+say(Junction:D \j)
+1
+2</pre>
+<p>Notice that <tt>say 1|2</tt> is not the same as <tt>say 1 ~~ 1|2</tt>. In the first case, the sub gets a junction, while in the second case it is called with a single Boolean value:</p>
+<pre>$ ./perl6 -e&#39;say 1 ~~ 1|2&#39;
+True</pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-207" href="https://perl6.online/2018/01/04/variants-of-say-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-207" href="https://perl6.online/2018/01/04/variants-of-say-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-207" href="https://perl6.online/2018/01/04/variants-of-say-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-207-5afe9da9531a3" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=207&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-207-5afe9da9531a3" id="like-post-wrapper-139853928-207-5afe9da9531a3"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

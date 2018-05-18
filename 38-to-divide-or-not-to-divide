@@ -1,0 +1,112 @@
+
+		<p>We have seen the mysterious <tt>DIVIDE_NUMBERS</tt> function a couple of times already. Let us keep our focus on it today.</p>
+<p>The function is a part of the Rat data type. It lives in src/core/Rat.pm together with its sister, <tt>DON&#39;T_DIVIDE_NUMBERS</tt>. (An apostrophe is a valid character for identifiers in Perl 6; it is not a namespace separator as in Perl 4 or Perl 5.)</p>
+<p>First, let us read the functions, starting with the simpler one.</p>
+<pre>sub <strong>DON&#39;T_DIVIDE_NUMBERS</strong>(Int:D \nu, Int:D \de, $t1, $t2) {
+    nqp::istype($t1, FatRat) || nqp::istype($t2, FatRat)
+        ?? nqp::p6bindattrinvres(
+              nqp::p6bindattrinvres(
+                  nqp::create(FatRat),
+                  FatRat, &#39;$!numerator&#39;, nqp::decont(nu)),
+              FatRat, &#39;$!denominator&#39;, nqp::decont(de))
+        !! nqp::p6bindattrinvres(
+              nqp::p6bindattrinvres(
+                  nqp::create(Rat),
+                  Rat, &#39;$!numerator&#39;, nqp::decont(nu)),
+              Rat, &#39;$!denominator&#39;, nqp::decont(de))
+}</pre>
+<p>The first two arguments, <tt>nu</tt> and <tt>de</tt>, are the numerator and the denominator of the future Rat number. The other two arguments carry their types (we’ll see how they are used in a bit).</p>
+<p>So, what does the function do? If creates either a FatRat or a Rat number. You get a FatRat value if at least one of the arguments is a FatRat number. In the opposite case, a Rat value is created. In the rest, both branches are identical:</p>
+<pre>nqp::p6bindattrinvres(
+    nqp::p6bindattrinvres(
+       nqp::create(Rat),
+       Rat, &#39;$!numerator&#39;, nqp::decont(nu)),
+    Rat, &#39;$!denominator&#39;, nqp::decont(de))</pre>
+<p>The <tt>nqp::create</tt> function creates an object, whose attributes, <tt>$!numerator</tt> and <tt>$!denominator</tt>, are later filled up with the corresponding values. Refer to <a href="https://perl6.online/2018/01/25/36-rakudo-2018-01/">one of the recent posts</a> to see how <tt>nqp::p6bindattrinvres</tt> was used to speed up the creation of a Rat value.</p>
+<p>Now, to the bigger function.</p>
+<pre>sub <strong>DIVIDE_NUMBERS</strong>(Int:D \nu, Int:D \de, \t1, \t2) {
+    nqp::stmts(
+      (my Int $gcd         := de == 0 ?? 1 !! nu gcd de),
+      (my Int $numerator   := nu div $gcd),
+      (my Int $denominator := de div $gcd),
+      nqp::if(
+        $denominator &lt; 0,
+        nqp::stmts(
+          ($numerator   := -$numerator),
+          ($denominator := -$denominator))),
+      nqp::if(
+        nqp::istype(t1, FatRat) || nqp::istype(t2, FatRat),
+        nqp::p6bindattrinvres(
+          nqp::p6bindattrinvres(nqp::create(FatRat),FatRat,&#39;$!numerator&#39;,$numerator),
+          FatRat,&#39;$!denominator&#39;,$denominator),
+        nqp::if(
+          $denominator &lt; UINT64_UPPER,
+          nqp::p6bindattrinvres(
+            nqp::p6bindattrinvres(nqp::create(Rat),Rat,&#39;$!numerator&#39;,$numerator),
+            Rat,&#39;$!denominator&#39;,$denominator),
+          nqp::p6box_n(nqp::div_In($numerator, $denominator)))))
+}</pre>
+<p>The second part of it is very similar to what we already discussed, but there are some data check and conversions in the beginning.</p>
+<pre>(my Int $gcd := de == 0 ?? 1 !! nu gcd de),
+(my Int $numerator := nu div $gcd),
+(my Int $denominator := de div $gcd),</pre>
+<p>You can see here that both the numerator and the denominator are divided by their greatest common divisor. In other words, a fraction like 10/20 is converted to 1/2, and that explains the name of the function.</p>
+<p>It also creates some kind of canonical form, making the denominator non-negative:</p>
+<pre>nqp::if(
+  $denominator &lt; 0,
+  nqp::stmts(
+     ($numerator := -$numerator),
+     ($denominator := -$denominator))),</pre>
+<p>Great, we have two functions that either immediately create a Rat (or FatRat) value or reduce the fraction before creating a Rat (or FatRat) value.</p>
+<p>The Rat class does the Rational role, and you can find another method that reduces the fraction there:</p>
+<pre>method <strong>REDUCE-ME</strong>(--&gt; Nil) {
+    if $!denominator &gt; 1 {
+        my $gcd = $!denominator gcd $!numerator;
+        if $gcd &gt; 1 {
+            nqp::bindattr(self, self.WHAT,
+                          &#39;$!numerator&#39;, $!numerator div $gcd);
+            nqp::bindattr(self, self.WHAT,
+                          &#39;$!denominator&#39;, $!denominator div $gcd);
+        }
+    }
+}</pre>
+<p>Our next step is to see where the functions are used. All of them are in the src/core/Rat.pm file.</p>
+<p>The simplest is the function for the <tt>/</tt> infix with two integer operands:</p>
+<pre>multi sub infix:&lt;/&gt;(Int:D \a, Int:D \b) {
+   DIVIDE_NUMBERS a, b, a, b
+}</pre>
+<p>Notice that the arguments are just repeated twice, while they are used differently as soon as they reach the <tt>DIVIDE_NUMBERS</tt> function.</p>
+<p>With other combinations of the types of the arguments, data flow is a bit more sophisticated:</p>
+<pre>multi sub infix:&lt;/&gt;(Int:D \a, Rational:D \b) {
+     b.REDUCE-ME; # RT #126391: [BUG] Bad &quot;divide by 0&quot; error message
+     DIVIDE_NUMBERS
+         b.denominator * a,
+         b.numerator,
+         a,
+         b;
+}</pre>
+<p>Please explore the src/core/Rat.pm file yourself if you want to see more examples. They all follow the idea that we already illustrated. Maybe with one exception: the code that may generate exceptions from the <tt>**</tt> operator.</p>
+<pre>multi sub infix:&lt;**&gt;(Rational:D \a, Int:D \b) {
+    b &gt;= 0
+      ?? DIVIDE_NUMBERS
+         (a.numerator ** b // 
+             <strong>fail</strong> (a.numerator.abs &gt; a.denominator
+                   ?? X::Numeric::Overflow
+                   !! X::Numeric::Underflow).new),
+         a.denominator ** b, # we presume it likely already blew up on the numerator
+         a,
+         b
+      !! DIVIDE_NUMBERS
+         (a.denominator ** -b // 
+              <strong>fail</strong> (a.numerator.abs &lt; a.denominator
+                    ?? X::Numeric::Overflow
+                    !! X::Numeric::Underflow).new),
+         a.numerator ** -b,
+         a,
+         b
+}</pre>
+<p>And that’s it for today. Stay tuned!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-424" href="https://perl6.online/2018/01/27/38-to-divide-or-not-to-divide/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-424" href="https://perl6.online/2018/01/27/38-to-divide-or-not-to-divide/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-424" href="https://perl6.online/2018/01/27/38-to-divide-or-not-to-divide/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-424-5afe9d7c25970" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=424&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-424-5afe9d7c25970" id="like-post-wrapper-139853928-424-5afe9d7c25970"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

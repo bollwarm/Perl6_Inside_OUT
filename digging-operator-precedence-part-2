@@ -1,0 +1,48 @@
+
+		<p>Yesterday, we took a look at how the ? and so operators are dispatched depending on the type of the variable. We did it with the intention to understand what is the difference between them.</p>
+<p>Here is once again an excerpt from the src/core/Bool.pm file, where the bodies of the subs look alike:</p>
+<pre>proto sub prefix:&lt;?&gt;(Mu $) is pure {*}
+multi sub prefix:&lt;?&gt;(Bool:D \a) { a }
+multi sub prefix:&lt;?&gt;(Bool:U \a) { Bool::False }
+multi sub prefix:&lt;?&gt;(Mu \a) { a.Bool }
+
+proto sub prefix:&lt;so&gt;(Mu $) is pure {*}
+multi sub prefix:&lt;so&gt;(Bool:D \a) { a }
+multi sub prefix:&lt;so&gt;(Bool:U \a) { Bool::False }
+multi sub prefix:&lt;so&gt;(Mu \a) { a.Bool }</pre>
+<p>Both of them coerce the arguments to a Bool value. The difference is in their operator precedence. You cannot say for sure what is the precedence if you only look at the Bool.pm file. You will find more details in the src/Perl6/Grammar.nqp file describing the Perl 6 language grammar. Here are the fragments we need:</p>
+<pre>token prefix:sym&lt;so&gt; { &lt;sym&gt;&lt;.end_prefix&gt; &lt;O(|%loose_unary)&gt; }
+. . .
+token prefix:sym&lt;?&gt; { &lt;sym&gt; &lt;!before &#39;??&#39;&gt; &lt;O(|%symbolic_unary)&gt; }</pre>
+<p>These look complex but let’s first concentrate only on the last part of the token definitions: <tt>&lt;O(|%loose_unary)&gt;</tt> and <tt>&lt;O(|%symbolic_unary)&gt;</tt>. Obviously, these are what define the rules for precedence. You can find a list of about 30 different kind of precedences in the same file:</p>
+<pre>## Operators
+
+. . .
+my <strong>%symbolic_unary</strong> := nqp::hash(&#39;prec&#39;, &#39;v=&#39;, &#39;assoc&#39;, &#39;unary&#39;, &#39;dba&#39;, &#39;symbolic unary&#39;);
+. . .
+my %list_assignment := nqp::hash(&#39;prec&#39;, &#39;i=&#39;, &#39;assoc&#39;, &#39;right&#39;, &#39;dba&#39;, &#39;list assignment&#39;, &#39;sub&#39;, &#39;e=&#39;, &#39;fiddly&#39;, 1);
+my <strong>%loose_unary</strong> := nqp::hash(&#39;prec&#39;, &#39;h=&#39;, &#39;assoc&#39;, &#39;unary&#39;, &#39;dba&#39;, &#39;loose unary&#39;);
+my %comma := nqp::hash(&#39;prec&#39;, &#39;g=&#39;, &#39;assoc&#39;, &#39;list&#39;, &#39;dba&#39;, &#39;comma&#39;, &#39;nextterm&#39;, &#39;nulltermish&#39;, &#39;fiddly&#39;, 1);
+. . .</pre>
+<p>Let’s avoid digging deeper into how it works at the moment. Looking at the list you can guess that the letters k, j, h, and g define the preference order of different kinds of preference rules. As well a <tt>right</tt> or <tt>left</tt> dictate the associativity of the operators.</p>
+<p>So, the so operator has the <em>loose unary</em> precedence level and the ? operator has a higher <em>symbolic unary</em> precedence.</p>
+<h2>The old conditional operator</h2>
+<p>Before we wrap up for today, let’s look at another interesting place where the single question mark can be caught in the Perl 6 program. I am talking about the following token in the grammar (notice that this time this is for an infix, not for a prefix):</p>
+<pre>token infix:sym&lt;?&gt; {
+    &lt;sym&gt; {} &lt;![?]&gt; &lt;?before &lt;.-[;]&gt;*?&#39;:&#39;&gt;
+    &lt;.obs(&#39;? and : for the ternary conditional operator&#39;, &#39;?? and !!&#39;)&gt;
+    &lt;O(|%conditional)&gt;
+}</pre>
+<p>This code catches the usage of a single <tt>?</tt>, which was a part of the ternary operator in Perl 5 unlike the double <tt>??</tt> from the ternary operator in Perl 6.</p>
+<p>The <tt>&lt;.obs...&gt;</tt> part of the token regex prints a warning about obsolete syntax:</p>
+<pre>$ ./perl6 -e&#39;say 1 ? True : False&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of ? and : for the ternary conditional operator;
+in Perl 6 please use ?? and !!
+at -e:1
+------&gt; say 1 ?⏏ True : False</pre>
+<p>So, if you use the old syntax, you’ll get not only an error message but also a hint on how to fix the issue.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-96" href="https://perl6.online/2017/12/28/digging-operator-precedence-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-96" href="https://perl6.online/2017/12/28/digging-operator-precedence-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-96" href="https://perl6.online/2017/12/28/digging-operator-precedence-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-96-5afe9db83d9a0" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=96&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-96-5afe9db83d9a0" id="like-post-wrapper-139853928-96-5afe9db83d9a0"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

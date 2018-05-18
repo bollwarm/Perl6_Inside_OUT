@@ -1,0 +1,65 @@
+
+		<p>In the previous posts, we saw many examples of calling NQP functions from the Perl 6 modules. One of the frequent calls was <tt>nqp::getattr</tt>. Let us see what that function does.</p>
+<p>Here are a couple of recent examples:</p>
+<pre>nqp::isge_i($pos,0)
+  &amp;&amp; nqp::isconcrete(<strong>nqp::getattr</strong>(self,List,&#39;$!reified&#39;))
+
+. . .
+
+nqp::if(
+  nqp::iseq_i(
+    <strong>nqp::getattr</strong>(
+      <strong>nqp::getattr</strong>($self,Code,&#39;$!signature&#39;),
+      Signature,
+      &#39;$!count&#39;
+  ),1)</pre>
+<p>When you first look at this, you may think that a string with a dollar such as <span style="font-family:monospace;">$!signature</span> or <tt>$!count</tt> or <tt>$!reified</tt> is a fancy representation of some internal attribute, and the non-alphabetical characters are used to prevent name clashes.</p>
+<p>In fact, this is nothing more than an attribute of the class. A random example from src/core/Any-iterable-methods.pm:</p>
+<pre>my class IterateMoreWithPhasers does SlippyIterator {
+    has &amp;!block;
+    has $!source;
+    has $!count;
+    has $!label;
+    has $!value-buffer;
+    has $!did-init;
+    has $!did-iterate;
+    has $!NEXT;
+    has $!CAN_FIRE_PHASERS;</pre>
+<p>The parameters of the <tt>nqp::getattr</tt> method are: an object, its class, and the name of the attribute.</p>
+<p>Try it out in a simple class:</p>
+<pre>use nqp;
+
+class C { 
+    has $!attr;
+
+    method set_attr($value) {
+        $!attr = $value;
+    }
+}
+
+my $o := nqp::create(C);
+$o.set_attr(&#39;my value&#39;);
+nqp::say(nqp::getattr($o, C, &#39;$!attr&#39;)); <em># my value</em></pre>
+<p>The class <tt>A</tt> has one private attribute <tt>$!attr</tt>, which is set with a manual setter method <tt>set_attr</tt>.</p>
+<p>After the new object is created, the attribute is set to some text value. Then, we use <tt>nqp::getattr</tt> to read the value from the attribute. Notice that the name of the attributed is passed as a string including the dollar and the exclamation mark characters.</p>
+<p>The setter method in this example was needed because you cannot access a private attribute from outside. This is not the case for public attributes, which, in fact, are private attributes, for which Perl 6 creates getter and setter automatically. Here is an updated version of the same program, that employs a public attribute and still uses <tt>nqp::getattr</tt>:</p>
+<pre>use nqp;
+
+class C { 
+    has $.attr is rw;
+}
+
+my $o := nqp::create(C);
+$o.attr = &#39;other value&#39;;
+nqp::say(nqp::getattr($o, C, &#39;$!attr&#39;)); <em># other value</em></pre>
+<p>This code is simpler and does not require an explicit setter method anymore.</p>
+<p>Although the <tt>$.attr</tt> field is declared with the dot twigil, the actual attribute still resides in an attribute with the name <tt>$!attr</tt>. The following code does not work:</p>
+<pre>nqp::say(nqp::getattr($o, C, &#39;<strong>$.attr</strong>&#39;));</pre>
+<p>An exception is thrown in this case:</p>
+<pre>P6opaque: no such attribute &#39;$.attr&#39; in type C when trying to get a value
+  in block &lt;unit&gt; at getattr-2.pl line 9</pre>
+<p>That’s all for today. Today, you were using a tiny bit of NQP in your Perl 6 program!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-272" href="https://perl6.online/2018/01/09/what-does-nqpgetattr-do/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-272" href="https://perl6.online/2018/01/09/what-does-nqpgetattr-do/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-272" href="https://perl6.online/2018/01/09/what-does-nqpgetattr-do/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-272-5afe9d9f6c785" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=272&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-272-5afe9d9f6c785" id="like-post-wrapper-139853928-272-5afe9d9f6c785"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

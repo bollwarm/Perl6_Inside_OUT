@@ -1,0 +1,168 @@
+
+		<p><a href="https://perl6.online/2018/02/03/45-exploring-the-pick-and-the-roll-methods-in-perl-6-part-2/">Yesterday</a>, we went through the code of the <tt>roll($N)</tt> method, so it will be easier to examine its brother, <tt>pick(N$)</tt>.</p>
+<p>The code lives in src/core/List.pm:</p>
+<pre>multi method pick(List:D: $number is copy) {
+    fail X::Cannot::Lazy.new(:action(&#39;.pick from&#39;)) if self.is-lazy;
+    my Int $elems = self.elems;
+    return () unless $elems;
+
+    $number = nqp::istype($number,Whatever) || $number == Inf
+        ?? $elems
+        !! $number.UInt min $elems;
+    Seq.new(class :: does Iterator {
+        has $!list;
+        has Int $!elems;
+        has int $!number;
+
+        method !SET-SELF(\list,$!elems,\number) {
+            $!list  := nqp::clone(nqp::getattr(list,List,&#39;$!reified&#39;));
+            $!number = number + 1;
+            self
+        }
+        method new(\list,\elems,\number) {
+            nqp::create(self)!SET-SELF(list,elems,number)
+        }
+        method pull-one() {
+            if ($!number = nqp::sub_i($!number,1)) {
+                my int $i;
+                my \tmp = nqp::atpos($!list,$i = $!elems.rand.floor);
+                nqp::bindpos($!list,$i,
+                    nqp::atpos($!list,nqp::unbox_i(--$!elems))
+                );
+                tmp
+            }
+            else {
+                IterationEnd
+            }
+        }
+        method push-all($target --&gt; IterationEnd) {
+            my int $i;
+            nqp::while(
+                ($!number = nqp::sub_i($!number,1)),
+                nqp::stmts(  # doesn&#39;t sink
+                ($target.push(nqp::atpos($!list,$i = $!elems.rand.floor))),
+                (nqp::bindpos($!list,$i,
+                    nqp::atpos($!list,nqp::unbox_i(--$!elems))))
+                )
+            )
+        }
+    }.new(self,$elems,$number))
+}</pre>
+<p>As you remember, this method should return non-repeating elements. In the case there are no more of them, it should just stop.</p>
+<p>Again, the first action is to check if the array is lazy or the requested number is infinite:</p>
+<pre><strong>fail</strong> X::Cannot::Lazy.new(:action(&#39;.pick from&#39;)) <strong>if self.is-lazy</strong>;</pre>
+<p>The check for the number sets the <tt>$number</tt> variable to either the requested number or, if it was infinite, to the length of the list:</p>
+<pre>$number = nqp::istype($number,Whatever) || $number == Inf 
+    ?? $elems 
+    !! $number.UInt min $elems;</pre>
+<p>The number cannot be bigger than the maximum value for UInt. Indirectly, a test for non-negativeness is performed in the Cool class:</p>
+<pre>multi method UInt() {
+    my $got := self.Int;
+    $got &lt; 0
+        ?? Failure.new(X::OutOfRange.new(
+            :what(&#39;Coercion to UInt&#39;),
+            :$got,
+            :range&lt;0..^Inf&gt;))
+        !! $got
+}</pre>
+<p>So, this case is in the end rejected:</p>
+<pre>./perl6 -e&#39;say &lt;a b c&gt;.pick(-1)&#39;
+Coercion to UInt out of range. Is: -1, should be in 0..^Inf
+   in block &lt;unit&gt; at -e line 1</pre>
+<h2>Pull one</h2>
+<p>If all the filters passed, we get to the point of creating a new Seq element. As in the <tt>roll</tt> method, an anonymous class implementing the Iterator role is created. This time, two methods are defined: <tt>pull-one</tt> and <tt>push-all</tt>. Let us start with the first of them:</p>
+<pre>method pull-one() {
+    if ($!number = nqp::sub_i($!number,1)) {
+        my int $i;
+        my \tmp = nqp::atpos($!list,$i = $!elems.rand.floor);
+        nqp::bindpos($!list,$i,
+            nqp::atpos($!list,nqp::unbox_i(--$!elems))
+        );
+        tmp
+    }
+    else {
+        IterationEnd
+    }
+}</pre>
+<p>If there is nothing to do, in other words, if the <tt>$!number</tt> variable reached zero, <tt>IterationEnd</tt> is returned. If the list is not exhausted, a random element is selected. Let us see how Rakudo makes sure that the selected elements are unique. It is all implemented in the next three lines:</p>
+<pre>my \tmp = nqp::atpos($!list,$i = $!elems.rand.floor);
+nqp::bindpos($!list,$i,
+    nqp::atpos($!list,nqp::unbox_i(--$!elems))
+);</pre>
+<p>Don’t worry, the original data is not changed, as it was cloned as soon as possible:</p>
+<pre>method !SET-SELF(\list,$!elems,\number) {
+     $!list := <strong>nqp::clone</strong>(nqp::getattr(list,List,&#39;$!reified&#39;));
+     $!number = number + 1;
+     self
+}</pre>
+<p>The interesting fact is that to achieve the goal we do not have to iterate over the list to search for the elements that were not used yet. First, a random element is picked:</p>
+<pre>my \tmp = nqp::atpos($!list,$i = $!elems.rand.floor);</pre>
+<p>From this code, you see that it can be any element from the whole list.</p>
+<p>Second, the position of the currently chosen element is filled with the value of one of the elements in the tail of a list. At each call, the tail position is moved to the beginning of the list.</p>
+<p>Let me show how it works in practice. I added a few lines to visualise the state of a list:</p>
+<pre>my \tmp = nqp::atpos($!list,$i = $!elems.rand.floor);
+<strong>nqp::say(&#39;$!number=&#39; ~ $!number);</strong>
+<strong>nqp::say(&#39;$i=&#39; ~ $i);</strong>
+
+nqp::bindpos($!list,$i,
+    nqp::atpos($!list,nqp::unbox_i(--$!elems))
+);
+
+<strong>nqp::say(&#39;$!elems=&#39; ~ $!elems);
+nqp::say(nqp::atpos($!list,0) ~</strong>
+<strong>         nqp::atpos($!list,1) ~</strong>
+<strong>         nqp::atpos($!list,2) ~</strong>
+<strong>         nqp::atpos($!list,3) ~</strong>
+<strong>         nqp::atpos($!list,4));</strong></pre>
+<p>Of course, it only works with the lists not longer than five elements but that is enough to get the idea:</p>
+<pre>$ ./perl6 -e&#39;say &lt;<strong>a b c d e</strong>&gt;.pick(4)&#39;
+$!number=4
+$i=1
+$!elems=4
+<strong>a<span style="color:#ff0000;">e</span>cde        </strong><em># <span style="color:#0000ff;"><strong>b</strong></span> is taken here</em>
+$!number=3
+$i=2
+$!elems=3
+<strong>ae<span style="color:#ff0000;">d</span>de        </strong><em># <strong><span style="color:#0000ff;">c</span></strong> is taken here and replaces with d</em>
+$!number=2
+$i=2
+$!elems=2
+<strong>ae<span style="color:#ff9900;">d</span>de        </strong><em># again, random element is nr. 2 but it is <strong><span style="color:#0000ff;">d</span></strong> now</em>
+$!number=1
+$i=1
+$!elems=1
+<strong>a<span style="color:#ff9900;">e</span>dde        </strong><em># random is at the position we visited</em> already,
+             <em># but the element is different now: <span style="color:#0000ff;"><strong>e</strong></span></em>
+(<span style="color:#0000ff;">b c d e</span>)</pre>
+<p>As you see, at each iteration the ‘used’ element is replaces with another one, which should not be seen yet.</p>
+<h2>Push all</h2>
+<p>The second method defined in the anonymous class is <tt>number-all</tt>:</p>
+<pre>method push-all($target --&gt; IterationEnd) {
+    my int $i;
+    nqp::while(
+        ($!number = nqp::sub_i($!number,1)),
+        nqp::stmts( # doesn&#39;t sink
+        ($target.push(nqp::atpos($!list,$i = $!elems.rand.floor))),
+        (nqp::bindpos($!list,$i,
+            nqp::atpos($!list,nqp::unbox_i(--$!elems))))
+        )
+    )
+}</pre>
+<p>In general, we see the same algorithm here with the only exception that it writes directly to the <tt>$target</tt> list.</p>
+<p>This method is used when you, for example, assign the result to an array. Compare:</p>
+<pre>$ ./perl6 -e&#39;say &lt;a b c d e&gt;.pick(4)&#39;
+pull-one
+pull-one
+pull-one
+pull-one
+pull-one
+(c d a b)
+
+$ ./perl6 -e&#39;my @a = &lt;a b c d e&gt;.pick(4); say @a&#39;
+push-all
+[d e a c]</pre>
+<p>That’s all for today. Tomorrow, I will demonstrate how to speed up Rakudo Perl 6 by 20%.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-476" href="https://perl6.online/2018/02/04/46-exploring-the-pick-and-the-roll-methods-in-perl-6-part-3/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-476" href="https://perl6.online/2018/02/04/46-exploring-the-pick-and-the-roll-methods-in-perl-6-part-3/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-476" href="https://perl6.online/2018/02/04/46-exploring-the-pick-and-the-roll-methods-in-perl-6-part-3/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-476-5afe9d7110d2c" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=476&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-476-5afe9d7110d2c" id="like-post-wrapper-139853928-476-5afe9d7110d2c"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

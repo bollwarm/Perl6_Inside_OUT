@@ -1,0 +1,99 @@
+
+		<p>Yesterday, we saw that the ternary operator is treated as an infix in the Perl 6 Grammar. The code between the two parts of the operator is caught by the <tt>&lt;EXPR&gt;</tt> method:</p>
+<pre>token infix:sym&lt;?? !!&gt; {
+    :my $*GOAL := &#39;!!&#39;;
+    $&lt;sym&gt;=&#39;??&#39;
+    &lt;.ws&gt;
+<strong>    &lt;EXPR(&#39;i=&#39;)&gt;</strong>
+    [ &#39;!!&#39;
+    . . .
+    ]
+    &lt;O(|%conditional, :reducecheck&lt;ternary&gt;, :pasttype&lt;if&gt;)&gt;
+}</pre>
+<p>Now, our attraction comes to <tt>O</tt>. Namely, to its <tt>reducecheck</tt> named argument. It passes some information about the fact that this is a ternary operator.</p>
+<p>Now, move to the next level of the compiler, to NQP, and examine the nqp/src/HLL/Grammar.nqp file, and specifically, the following method of the HLL::Grammar class there:</p>
+<pre>method EXPR_reduce(@termstack, @opstack) {
+    . . .
+    
+    else { # infix op assoc: left|right|ternary|...
+        $op[1] := nqp::pop(@termstack); # right
+        $op[0] := nqp::pop(@termstack); # left
+
+        $reducecheck := nqp::atkey(%opO, &#39;reducecheck&#39;);
+        self.&quot;$reducecheck&quot;($op) unless nqp::isnull($reducecheck);
+        $key := &#39;INFIX&#39;;
+    }
+
+    self.&#39;!reduce_with_match&#39;(&#39;EXPR&#39;, $key, $op);
+}</pre>
+<p>This is only a fragment but even this tiny part contains a few interesting details.</p>
+<p>First, we see that the <tt>else</tt> branch handles not only the ternary operator but also some others. The left and the right operands are taken from some stack and saved in <tt>$op</tt>.</p>
+<p>Another interesting thing is the method call:</p>
+<pre>self.&quot;$reducecheck&quot;($op)</pre>
+<p>The name of the method is stored in the <tt>$reducecheck</tt> variable and for the ternary operator, it should contain <tt>ternary</tt>.</p>
+<p>Here is the method:</p>
+<pre>method ternary($match) {
+    $match[2] := $match[1];
+    $match[1] := <strong>$match{&#39;infix&#39;}{&#39;EXPR&#39;}</strong>;
+}</pre>
+<p>Some swap magic here that we can ignore for now, but what is important is that the infix’s <tt>EXPR</tt> match is read here. Finally, we spotted all the three operands of the <tt>?? !!</tt> operator.</p>
+<p>Return to the last line of the <tt>EXPR_recude</tt> method:</p>
+<pre>self.&#39;!reduce_with_match&#39;(&#39;EXPR&#39;, $key, $op);</pre>
+<p>Again, a method is called here; this time the name starts with the exclamation mark. The $op parameter contains the left and the right operands; the value of <tt>$key</tt> is <tt>INFIX</tt>.</p>
+<p>At this point you should recall that Perl 6 is using a virtual machine, so to see where the actual comparison happens, you have to dig further to the MoarVM assembly tree, which we will not do today. Meanwhile, briefly lurk into nqp/src/QRegex/Cursor.nqp to trace the above call further:</p>
+<pre>role NQPMatchRole is export {
+    . . .
+    method !reduce_with_match(str $name, str $key, $match) { 
+        my $actions := self.actions;
+        <strong>nqp::findmethod($actions, $name)($actions, $match, $key)</strong>
+        if !nqp::isnull($actions) &amp;&amp; nqp::can($actions, $name);
+    }
+    . . .</pre>
+<p>The highlighted line with two parentheses in a row is a call of the routine that is returned by <tt>nqp::findmethod</tt>.</p>
+<p>Let us return back to the higher level of the compiler. If you want to visualise the data flow and print the variables, make sure you start the line with a hash character. This is needed because some of the code lands in the gen/moar directory as a collection of generated files and all your printouts will be compiled again. So, hide them from the compiler.</p>
+<pre>else { # infix op assoc: left|right|ternary|...
+    $op[1] := nqp::pop(@termstack); # right
+    $op[0] := nqp::pop(@termstack); # left
+
+<strong>    nqp::say(&quot;#left =&quot; ~ $op[0]);</strong>
+<strong>    nqp::say(&quot;#right=&quot; ~ $op[1]);</strong>
+
+    $reducecheck := nqp::atkey(%opO, &#39;reducecheck&#39;);
+    self.&quot;$reducecheck&quot;($op) unless nqp::isnull($reducecheck);
+    $key := &#39;INFIX&#39;;
+}
+
+. . .
+
+method ternary($match) {
+<strong>    nqp::say(&#39;#match=&#39; ~ $match);</strong>
+<strong>    nqp::say(&#39;#before 1=&#39;~ $match[1]);</strong>
+<strong>    nqp::say(&#39;#before 2=&#39;~ $match[2]);</strong>
+    $match[2] := $match[1];
+    $match[1] := $match{&#39;infix&#39;}{&#39;EXPR&#39;};
+<strong>    nqp::say(&#39;#after 1=&#39;~ $match[1]);</strong>
+<strong>    nqp::say(&#39;#after 2=&#39;~ $match[2]);</strong>
+}</pre>
+<p>Recompile everything:</p>
+<pre>$ cd nqp
+$ make clean
+$ make
+$ make install
+$ cd ..
+$ make clean
+$ make</pre>
+<p>And run a program with a trivial ternary condition:</p>
+<pre>$ ./perl6 -e&#39;say 2 ?? 3 !! 4&#39;
+#left =2
+#right=4
+#match=?? 3 !!
+#before 1=4
+#before 2=
+#after 1=3 
+#after 2=4
+3</pre>
+<p>Great! Today, it was a deep dive into the compiler, and I hope it gave you an understanding of how the ternary operator treats its three operands in Perl 6.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-302" href="https://perl6.online/2018/01/12/23-the-internals-of-the-ternary-operator-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-302" href="https://perl6.online/2018/01/12/23-the-internals-of-the-ternary-operator-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-302" href="https://perl6.online/2018/01/12/23-the-internals-of-the-ternary-operator-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-302-5afe9d9b048d3" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=302&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-302-5afe9d9b048d3" id="like-post-wrapper-139853928-302-5afe9d9b048d3"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

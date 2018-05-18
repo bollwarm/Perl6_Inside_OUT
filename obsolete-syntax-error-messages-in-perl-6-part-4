@@ -1,0 +1,65 @@
+
+		<p>So far, we covered a lot of different error messages that Rakudo Perl 6 generates when you accidentally use the Perl 5 syntax. This is a really nice feature for easy migration to the new language.</p>
+<p>Let us continue and cover another couple of errors.</p>
+<h2>new X</h2>
+<p>It was one of the hottest topics in Perl 5 to forbid indirect method calls. Personally, I always preferred to use an arrow for method calls while still feeling better with <tt>new X(...)</tt> when creating objects. Now, Perl 6 prevents that and it looks like it knows something about my first language:</p>
+<pre>$ perl6 -e&#39;say <strong>new Int</strong>;&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of C++ constructor syntax;
+in Perl 6 please use method call syntax
+at -e:1
+------&gt; say new Int⏏;</pre>
+<p>The attempt to use a C++ constructor call is blocked by the following rule in the Grammar:</p>
+<pre>token term:sym&lt;new&gt; {
+    &#39;new&#39; \h+ &lt;longname&gt; \h* &lt;![:]&gt;
+    &lt;.obs(&quot;C++ constructor syntax&quot;, &quot;method call syntax&quot;)&gt;
+}</pre>
+<p>It allows the following code, though:</p>
+<pre>my $c = new Int:;
+$c++;
+say $c; <em># 1</em></pre>
+<h2>-&gt; vs .</h2>
+<p>Another aspect of object-oriented programming is the way methods are called. In Perl 5, it used to be an arrow while in Perl 6 methods are called with a dot.</p>
+<p>So, neither <tt>$x-&gt;meth</tt> nor <tt>$x-&gt;()</tt> should work. The rules that catch that are defined as the following:</p>
+<pre># TODO: report the correct bracket in error message
+token postfix:sym«-&gt;» {
+    &lt;sym&gt;
+    [
+    | [&#39;[&#39; | &#39;{&#39; | &#39;(&#39; ] &lt;.obs(&#39;-&gt;(), -&gt;{} or -&gt;[] as postfix dereferencer&#39;, &#39;.(), .[] or .{} to deref, or whitespace to delimit a pointy block&#39;)&gt;
+    | &lt;.obs(&#39;-&gt; as postfix&#39;, &#39;either . to call a method, or whitespace to delimit a pointy block&#39;)&gt;
+    ]
+}</pre>
+<p>The token extracts an arrow and prints one of the two messages depending on the next character.</p>
+<p>If the character is an opening brace, it would be nice to make a less generic message, and the TODO comment actually agrees that it is the desired thing. Let us try making that at home.</p>
+<pre><strong>method bracket_pair($s) {</strong>
+<strong>    $s eq &#39;{&#39; ?? &#39;}&#39; !! $s eq &#39;[&#39; ?? &#39;]&#39; !! &#39;)&#39;</strong>
+<strong>}</strong>
+
+token postfix:sym«-&gt;» {
+    &lt;sym&gt;
+    [
+    | <strong>$&lt;openingbracket&gt;=[&#39;[&#39; | &#39;{&#39; | &#39;(&#39; ] {</strong>
+<strong>        my $pair := $&lt;openingbracket&gt; ~ self.bracket_pair(~$&lt;openingbracket&gt;);</strong>
+<strong>        self.obs(&quot;-&gt;$pair as postfix dereferencer&quot;,
+                 &quot;.$pair to deref, or whitespace to delimit a pointy block&quot;)</strong>
+<strong>    }</strong>
+    | &lt;.obs(&#39;-&gt; as postfix&#39;, &#39;either . to call a method, or whitespace to delimit a pointy block&#39;)&gt;
+    ]
+}</pre>
+<p>The changes are shown in bold. First, I save the opening brace in <tt>$&lt;openingbracket&gt;</tt>, then, a simple function finds its matching pair, and finally, the <tt>$pair</tt> variable gets both parts, so either {}, or [], or ().</p>
+<p>The goal has been achieved:</p>
+<pre>$ ./perl6 -e&#39;say Int-&gt;{}&#39;
+===SORRY!=== Error while compiling -e
+Unsupported use of <strong>-&gt;{}</strong> as postfix dereferencer;
+in Perl 6 please use <strong>.{}</strong> to deref, or whitespace
+to delimit a pointy block
+at -e:1
+------&gt; say Int-&gt;⏏{}
+    expecting any of:
+        postfix</pre>
+<p>Maybe it also worth not mentioning pointy blocks for [] and ().</p>
+<p>As homework, try using the method that Rakudo is using itself for <a href="https://github.com/rakudo/star/blob/master/docs/announce/2013.05.md">detecting the closing bracket-pair</a> instead of our function above.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-329" href="https://perl6.online/2018/01/16/obsolete-syntax-error-messages-in-perl-6-part-4/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-329" href="https://perl6.online/2018/01/16/obsolete-syntax-error-messages-in-perl-6-part-4/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-329" href="https://perl6.online/2018/01/16/obsolete-syntax-error-messages-in-perl-6-part-4/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-329-5afe9d963d9b9" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=329&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-329-5afe9d963d9b9" id="like-post-wrapper-139853928-329-5afe9d963d9b9"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

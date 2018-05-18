@@ -1,0 +1,43 @@
+
+		<p>When you print an object, say, as <tt>say $x</tt>, Perl 6 calls the <tt>gist</tt> method. This method is defined for all built-in types: for some of them, it calls the <tt>Str</tt> method, for some the <tt>perl</tt> method, for some types it makes the string representation somehow differently.</p>
+<p>Let us see how you can use the method to create your own variant:</p>
+<pre>class X {
+    has $.value;
+
+    method gist {
+        &#39;[&#39; ~ $!value ~ &#39;]&#39;
+    }
+}
+
+my $x = X.new(value =&gt; 42);
+
+say $x; <em># [42]</em>
+$x.say; <em># [42]</em></pre>
+<p>When you call <tt>say</tt>, the program prints a number in square brackets: <tt>[42]</tt>.</p>
+<p>Please notice that the interpolation inside double-quoted strings is using <tt>Str</tt>, not <tt>gist</tt>. You can see it here:</p>
+<pre>say $x.Str; <em># X&lt;140586830040512&gt;</em>
+say &quot;$x&quot;;   <em># X&lt;140586830040512&gt;</em></pre>
+<p>If you need a custom interpolation, redefine the <tt>Str</tt> method:</p>
+<pre>class X {
+    has $.value;
+
+    method gist {
+        &#39;[&#39; ~ $!value ~ &#39;]&#39;
+    }
+    method Str {
+        &#39;&quot;&#39; ~ $!value ~ &#39;&quot;&#39;
+    }
+}
+
+my $x = X.new(value =&gt; 42);
+
+say $x;     <em># [42]</em>
+$x.say;     <em># [42]</em>
+
+say $x.Str; <em># &quot;42&quot;</em>
+say &quot;$x&quot;;   <em># &quot;42&quot;</em></pre>
+<p>Now, we got the desired behaviour.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-579" href="https://perl6.online/2018/02/27/64-what-is-gist-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-579" href="https://perl6.online/2018/02/27/64-what-is-gist-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-579" href="https://perl6.online/2018/02/27/64-what-is-gist-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-579-5afe9d50edca9" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=579&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-579-5afe9d50edca9" id="like-post-wrapper-139853928-579-5afe9d50edca9"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,61 @@
+
+		<p>Today, we are continuing reading the source codes of the Bool class: src/core/Bool.pm, and will look at the methods that calculate the next or the previous values, or increment and decrement the values. For the Boolean type, it sounds simple, but you still have to determine the behaviour of the edge cases.</p>
+<h2>pred and succ</h2>
+<p>In Perl 6, there are two complementary methods: <tt>pred</tt> and <tt>succ</tt> that should return, correspondingly, the preceding and the succeeding values. This is how they are defined for the Bool type:</p>
+<pre>Bool.^add_method(&#39;pred&#39;, my method pred() { Bool::False });
+Bool.^add_method(&#39;succ&#39;, my method succ() { Bool::True });</pre>
+<p>As you see, these methods are regular (not multi) methods and do not distinguish between defined or undefined arguments. The result neither depends on the value!</p>
+<p>If you take two Boolean variables, one set to False and another to True, the <tt>prec</tt> method returns False for both variables:</p>
+<pre>my Bool $f = False;
+my Bool $t = True;
+my Bool $u;
+
+say $f.pred;    <em># False</em>
+say $t.pred;    <em># False</em>
+say $u.pred;    <em># False</em>
+say False.pred; <em># False</em>
+say True.pred;  <em># False</em></pre>
+<p>Similarly, the <tt>succ</tt> method always returns True:</p>
+<pre>say $f.succ;    <em># True</em>
+say $t.succ;    <em># True</em>
+say $u.succ;    <em># True</em>
+say False.succ; <em># True</em>
+say True.succ;  <em># True</em></pre>
+<h2>Increment and decrement</h2>
+<p>The variety of the <tt>++</tt> and <tt>--</tt> operations is even more, as another dimension—prefix or postfix—is added.</p>
+<p>First, the two prefixal forms:</p>
+<pre>multi sub prefix:&lt;++&gt;(Bool $a is rw) { $a = True; }
+multi sub prefix:&lt;--&gt;(Bool $a is rw) { $a = False; }</pre>
+<p>When you read the sources, you start slowly understand that many strangely behaving bits of the language may be well explained, because the developers have to think about huge combinations of arguments, variables, positions, etc., about which you may not even think when using the language.</p>
+<p>The prefix forms simply set the value of the variable to either True or False, and it happens for both defined and undefined variables. The <tt>is rw</tt> trait allows modifying the argument.</p>
+<p>Now, the postfix forms. This time, the state of the variable matters.</p>
+<pre>multi sub postfix:&lt;++&gt;(Bool:U $a is rw --&gt; False) { $a = True }
+multi sub postfix:&lt;--&gt;(Bool:U $a is rw) { $a = False; }</pre>
+<p>We see a new element of syntax—the return value is mentioned after an arrow in the sub signature:</p>
+<pre>(Bool:U $a is rw --&gt; False)</pre>
+<p>The bodies of the operators that work on defined variables, are wordier. If you look at the code precisely, you can see that it avoids assigning the new value to a variable if, for example, a variable containing True is incremented.</p>
+<pre>multi sub postfix:&lt;++&gt;(Bool:D $a is rw) {
+    if $a {
+        True
+    }
+    else {
+        $a = True;
+        False
+    }
+}
+
+
+multi sub postfix:&lt;--&gt;(Bool:D $a is rw) {
+    if $a {
+        $a = False;
+        True
+    }
+    else {
+        False
+    }
+}</pre>
+<p>As you see, the changed value of the variable after the operation may be different from what the operator returns.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-75" href="https://perl6.online/2017/12/25/exploring-the-bool-type-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-75" href="https://perl6.online/2017/12/25/exploring-the-bool-type-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-75" href="https://perl6.online/2017/12/25/exploring-the-bool-type-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-75-5afe9dbef0858" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=75&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-75-5afe9dbef0858" id="like-post-wrapper-139853928-75-5afe9dbef0858"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

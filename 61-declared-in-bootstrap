@@ -1,0 +1,80 @@
+
+		<p>First of all, a new release of the Rakudo Perl 6 compiler was announced today: <a href="https://github.com/rakudo/rakudo/blob/master/docs/announce/2018.02.md">2018.02</a>. There are many fixes and speed improvements there, including one <a href="https://perl6.online/2018/02/05/47-push-all-optimisation/">proposed by me</a>. Let me not go through the changes, as most of them require quite in-depth knowledge of the Rakudo internals.</p>
+<p>Instead, let us take a low-hanging fruit and look at the feature that you may see almost immediately when you start reading Rakudo sources.</p>
+<p>Ideologically, Perl 6 can (and should) be written in Perl 6. Currently, some parts are written in NQP but still, the vast number of data types—located in the src/core directory—are implemented in Perl 6.</p>
+<p>The thing is that some classes are not fully defined there. Or their relation to other classes is not explicit. For example, here’s the whole definition of the <tt>Sub</tt> class:</p>
+<pre>my class Sub { # declared in BOOTSTRAP
+    # class Sub is Routine
+
+}</pre>
+<p>Not only you don’t see any methods here, but also its hierarchy is defined ‘via comments.’ Of course, Perl 6 is not that smart to read comments saying ‘make this code great and cool,’ so let’s see what’s going on here.</p>
+<p>In the source tree, there is the following file: src/Perl6/Metamodel/BOOTSTRAP.nqp, where the above-mentioned relation is built.</p>
+<p>The class itself (the <tt>Sub</tt> name) is declared as a so-called stub in the very beginning of the file:</p>
+<pre>my stub Sub metaclass Perl6::Metamodel::ClassHOW { ... };</pre>
+<p>Now, the name is known but the definition is not yet ready. We have seen a few examples earlier. Here is the part of the <tt>Sub</tt> class:</p>
+<pre># class Sub is Routine {
+Sub.HOW.add_parent(Sub, Routine);
+Sub.HOW.compose_repr(Sub);
+Sub.HOW.compose_invocation(Sub);</pre>
+<p>This code lets the user think that the class definition is the following, as the <a href="https://docs.perl6.org/type/Sub">documentation</a> says:</p>
+<pre>class Sub is Routine {
+}</pre>
+<p>Other examples of <tt>Routine</tt> children are <tt>Method</tt>, <tt>Submethod</tt>, and <tt>Macro</tt>. The first two are also defined in BOOTSTRAP:</p>
+<pre># class Method is Routine {
+Method.HOW.add_parent(Method, Routine);
+Method.HOW.compose_repr(Method);
+Method.HOW.compose_invocation(Method);
+
+# class Submethod is Routine {
+Submethod.HOW.add_parent(Submethod, Routine);
+Submethod.HOW.compose_repr(Submethod);
+Submethod.HOW.compose_invocation(Submethod);</pre>
+<p>The classes themselves are defined in their corresponding files src/core/Method.pm and src/core/Submethod.pm:</p>
+<pre>my class Method { # declared in BOOTSTRAP
+    # class Method is Routine
+
+    multi method gist(Method:D:) { self.name }
+}</pre>
+<pre>my class Submethod { # declared in BOOTSTRAP
+    # class Submethod is Routine
+
+    multi method gist(Submethod:D:) { self.name }
+}</pre>
+<p>Unlike them, the Marco type’s hierarchy is explicitly announced in src/core/Macro.pm:</p>
+<pre>my class Macro is Routine {
+}</pre>
+<p>As you may see, the classes basically introduce their namespaces and do not add many methods to their <tt>Routine</tt> parent.</p>
+<p>The Routine class in its turn is also defined in two places: in src/core/Routine.pm and in BOOTSTRAP.pm.</p>
+<pre>my class Routine { # declared in BOOTSTRAP
+    # class Routine is Block
+    # has @!dispatchees;
+    # has Mu $!dispatcher_cache;
+    # has Mu $!dispatcher;
+    # has int $!rw;
+    # has Mu $!inline_info;
+    # has int $!yada;
+    # has Mu $!package;
+    # has int $!onlystar;
+    # has @!dispatch_order;
+    # has Mu $!dispatch_cache;</pre>
+<p>This time, there are many methods, some of which are added in src/core/Routine.pm using regular Perl 6 syntax, and some are added through BOOTSTRAP in NQP:</p>
+<p>In Perl 6:</p>
+<pre>method candidates() {
+    self.is_dispatcher ??
+        nqp::hllize(@!dispatchees) !!
+        (self,)
+}</pre>
+<p>In NQP:</p>
+<pre>Routine.HOW.add_method(Routine, &#39;dispatcher&#39;, nqp::getstaticcode(sub ($self) {
+    nqp::getattr(nqp::decont($self),
+        Routine, &#39;$!dispatcher&#39;)
+    }));</pre>
+<p>Similarly, the attributes from comments are created in NQP:</p>
+<pre>Routine.HOW.add_attribute(Routine, Attribute.new(:name&lt;@!dispatchees&gt;, :type(List), :package(Routine)));
+Routine.HOW.add_attribute(Routine, Attribute.new(:name&lt;$!dispatcher_cache&gt;, :type(Mu), :package(Routine)));</pre>
+<p>As far as I understand, such bootstrapping is needed because Rakudo requires some Perl 6 defined before it can compile itself. For example, if you declare <tt>Sub</tt>’s relation to <tt>Routine</tt> completely in src/core/Sub.pm, then you get an error when compiling Rakudo:</p>
+<pre class="p1"><strong><span class="s1">Representation for Sub must be composed before it can be serialized</span></strong></pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-550" href="https://perl6.online/2018/02/19/61-declared-in-bootstrap/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-550" href="https://perl6.online/2018/02/19/61-declared-in-bootstrap/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-550" href="https://perl6.online/2018/02/19/61-declared-in-bootstrap/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-550-5afe9d550f715" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=550&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-550-5afe9d550f715" id="like-post-wrapper-139853928-550-5afe9d550f715"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

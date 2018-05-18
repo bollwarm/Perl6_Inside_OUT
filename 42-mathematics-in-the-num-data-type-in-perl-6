@@ -1,0 +1,76 @@
+
+		<p>The first full month of Perl 6 blogging is over. Daily Perl 6 insights of <a href="https://perl6.online">perl6.online</a>:</p>
+<p><img alt="Screen Shot 2018-01-31 at 21.54.55" class="alignnone size-full wp-image-452" data-attachment-id="452" data-comments-opened="1" data-image-description="" data-image-meta="{&quot;aperture&quot;:&quot;0&quot;,&quot;credit&quot;:&quot;&quot;,&quot;camera&quot;:&quot;&quot;,&quot;caption&quot;:&quot;&quot;,&quot;created_timestamp&quot;:&quot;0&quot;,&quot;copyright&quot;:&quot;&quot;,&quot;focal_length&quot;:&quot;0&quot;,&quot;iso&quot;:&quot;0&quot;,&quot;shutter_speed&quot;:&quot;0&quot;,&quot;title&quot;:&quot;&quot;,&quot;orientation&quot;:&quot;0&quot;}" data-image-title="Screen Shot 2018-01-31 at 21.54.55" data-large-file="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=1100?w=1024" data-medium-file="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=1100?w=300" data-orig-file="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=1100" data-orig-size="1392,290" data-permalink="https://perl6.online/2018/01/31/42-mathematics-in-the-num-data-type-in-perl-6/screen-shot-2018-01-31-at-21-54-55/" sizes="(max-width: 1100px) 100vw, 1100px" src="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=1100" srcset="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=1100 1100w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=150 150w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=300 300w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=768 768w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png?w=1024 1024w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-54-55.png 1392w"></p>
+<p>And a sister story of <a href="https://perl6.ru">perl6.ru</a>, where I write about the ‘user-level’ elements of Perl 6.</p>
+<p><img alt="Screen Shot 2018-01-31 at 21.55.04.png" class="alignnone size-full wp-image-453" data-attachment-id="453" data-comments-opened="1" data-image-description="" data-image-meta="{&quot;aperture&quot;:&quot;0&quot;,&quot;credit&quot;:&quot;&quot;,&quot;camera&quot;:&quot;&quot;,&quot;caption&quot;:&quot;&quot;,&quot;created_timestamp&quot;:&quot;0&quot;,&quot;copyright&quot;:&quot;&quot;,&quot;focal_length&quot;:&quot;0&quot;,&quot;iso&quot;:&quot;0&quot;,&quot;shutter_speed&quot;:&quot;0&quot;,&quot;title&quot;:&quot;&quot;,&quot;orientation&quot;:&quot;0&quot;}" data-image-title="Screen Shot 2018-01-31 at 21.55.04" data-large-file="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=1100?w=1024" data-medium-file="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=1100?w=300" data-orig-file="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=1100" data-orig-size="1362,280" data-permalink="https://perl6.online/2018/01/31/42-mathematics-in-the-num-data-type-in-perl-6/screen-shot-2018-01-31-at-21-55-04/" sizes="(max-width: 1100px) 100vw, 1100px" src="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=1100" srcset="https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=1100 1100w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=150 150w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=300 300w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=768 768w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png?w=1024 1024w, https://inperl6.files.wordpress.com/2018/01/screen-shot-2018-01-31-at-21-55-04.png 1362w"></p>
+<p>My original plan was to have the whole year of posts, so about 1/12 is done.</p>
+<p>Let us look at the Num class, specifically at its mathematical elements. So, our focus is mainly on the src/core/Num.pm file today.</p>
+<h2>Constants</h2>
+<p>First of all, we see a few definitions of mathematical constants:</p>
+<pre>my constant tau = 6.28318_53071_79586_476e0;
+my constant pi  = 3.14159_26535_89793_238e0;
+my constant e   = 2.71828_18284_59045_235e0;</pre>
+<p>As the constants are written in the scientific notation, they are all Nums. The alternative Unicode spellings are presented next to these definitions:</p>
+<pre>my constant π := pi;
+my constant τ := tau;
+#?if moar
+my constant 𝑒 := e;
+#?endif</pre>
+<p>It looks like 𝑒 is MoarVM-specific only. Also, notice that these names are bindings to the ASCII ones, not their copies.</p>
+<h2>Functions</h2>
+<p>A lot of trigonometric functions are defined for the Num class. Mostly, they look alike, so let us see at one of the examples, the sine function.</p>
+<p>Functions exist as methods of the class:</p>
+<pre>my class Num does Real {
+    . . .
+    proto method sin(|) {*}
+    multi method sin(Num:D: ) {
+        nqp::p6box_n(nqp::sin_n(nqp::unbox_n(self)));
+    }
+    . . .
+}</pre>
+<p>Also, each method is duplicated as a standalone subroutine:</p>
+<pre>multi sub sin(num $x --&gt; num) {
+    nqp::sin_n($x);
+}</pre>
+<p>You should immediately notice that the argument of the subroutine, unlike the one of the method, is a native type.</p>
+<p>There are other variants of the <tt>sin</tt> function in src/core/Numeric.pm:</p>
+<pre>proto sub sin($) is pure {*}
+multi sub sin(Numeric \x) { x.sin }
+multi sub sin(Cool \x) { x.Numeric.sin }</pre>
+<p>Also, there is a method in the Cool class:</p>
+<pre>my class Cool { 
+    . . .
+    method sin() { self.Numeric.sin }
+    . . .
+}</pre>
+<p>Finally, the Real role is also equipped with the method:</p>
+<pre>my role Real does Numeric {
+    . . .
+    method sin() { self.Bridge.sin }
+    . . .
+}</pre>
+<p>The <tt>Bridge</tt> method is used here, which is our friend from the <a href="https://perl6.online/2018/01/22/33-the-cmp-infix-in-perl-6/">previous material</a>.</p>
+<p>On the JIT level of MoarVM, such functions are linked directly to the C library (if I understand if correctly):</p>
+<pre>case MVM_OP_sin_n: return sin;
+case MVM_OP_cos_n: return cos;
+case MVM_OP_tan_n: return tan;
+case MVM_OP_asin_n: return asin;
+case MVM_OP_acos_n: return acos;
+case MVM_OP_atan_n: return atan;</pre>
+<h2>Exercise</h2>
+<p>As an exercise, trace the calls for the following code:</p>
+<pre>say pi.sin;
+say 3.sin;
+
+say sin(3);
+say sin(pi);
+
+say 3.14.sin;
+say sin(3.14);
+
+say 314e-2.sin;
+say sin(314e-2);</pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-451" href="https://perl6.online/2018/01/31/42-mathematics-in-the-num-data-type-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-451" href="https://perl6.online/2018/01/31/42-mathematics-in-the-num-data-type-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-451" href="https://perl6.online/2018/01/31/42-mathematics-in-the-num-data-type-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-451-5afe9d750dac5" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=451&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-451-5afe9d750dac5" id="like-post-wrapper-139853928-451-5afe9d750dac5"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

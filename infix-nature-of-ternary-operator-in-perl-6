@@ -1,0 +1,49 @@
+
+		<p>The ternary operator <tt>?? !!</tt> takes three operands, obviously. Although, it is said in the documentation that the operator <a href="https://docs.perl6.org/language/operators#index-entry-Ternary_operator">is an infix</a>. Let us figure out why.</p>
+<p>Here is the fragment from the Grammar that handles the ternary operator:</p>
+<div>
+<pre>token infix:sym&lt;?? !!&gt; {
+    :my $*GOAL := &#39;!!&#39;;
+    $&lt;sym&gt;=&#39;??&#39;
+    &lt;.ws&gt;
+    &lt;EXPR(&#39;i=&#39;)&gt;
+    [ &#39;!!&#39;
+    || &lt;?before &#39;::&#39; &lt;.-[=]&gt;&gt; { self.typed_panic: &quot;X::Syntax::ConditionalOperator::SecondPartInvalid&quot;, second-part =&gt; &quot;::&quot; }
+    || &lt;?before &#39;:&#39; &lt;.-[=\w]&gt;&gt; { self.typed_panic: &quot;X::Syntax::ConditionalOperator::SecondPartInvalid&quot;, second-part =&gt; &quot;:&quot; }
+    || &lt;infixish&gt; { self.typed_panic: &quot;X::Syntax::ConditionalOperator::PrecedenceTooLoose&quot;, operator =&gt; ~$&lt;infixish&gt; }
+    || &lt;?{ ~$&lt;EXPR&gt; ~~ / &#39;!!&#39; / }&gt; { self.typed_panic: &quot;X::Syntax::ConditionalOperator::SecondPartGobbled&quot; }
+    || &lt;?before \N*? [\n\N*?]? &#39;!!&#39;&gt; { self.typed_panic: &quot;X::Syntax::Confused&quot;, reason =&gt; &quot;Confused: Bogus code found before the !! of conditional operator&quot; }
+    || { self.typed_panic: &quot;X::Syntax::Confused&quot;, reason =&gt; &quot;Confused: Found ?? but no !!&quot; }
+    ]
+    &lt;O(|%conditional, :reducecheck&lt;ternary&gt;, :pasttype&lt;if&gt;)&gt;
+}</pre>
+</div>
+<p>The most of the body is filled with different error reporting additions that pop up when something is wrong with the second part of the operator. Let us reduce the noise and implement the simplest form of our own artificial operator <tt>¿¿ ¡¡</tt> that does no such error checking:</p>
+<pre>token infix:sym&lt;¿¿ ¡¡&gt; {
+    &#39;¿¿&#39;
+    &lt;.ws&gt;
+    &lt;EXPR(&#39;i=&#39;)&gt;
+    &#39;¡¡&#39;
+    &lt;O(|%conditional, :reducecheck&lt;ternary&gt;, :pasttype&lt;if&gt;)&gt;
+}</pre>
+<p>Now you can clearly see the structure of the token. It matches the following components: a literal string <tt>&#39;¿¿&#39;</tt>, an expression, and another string <tt>&#39;¡¡&#39;</tt>. We’ve already seen <a href="https://perl6.online/2017/12/28/digging-operator-precedence-part-2/">the use of the <tt>O</tt> token</a> when we were talking about precedence.</p>
+<p>If you consider <tt>¿¿ ¡¡</tt> as an infix operator  (<span style="font-family:monospace;">$left ¿¿ $mid ¡¡ $right</span>), then the first and the third operands of the ternary operator are, respectively, the left and the right operands of the combined operator. The code between <tt>¿¿</tt> and <tt>¡¡</tt> is caught by the <tt>&lt;EXPR&gt;</tt> rule.</p>
+<p>Before wrapping up for today, let us print what the Grammar finds at that position:</p>
+<pre>token infix:sym&lt;¿¿ ¡¡&gt; {
+    &#39;¿¿&#39;
+    &lt;.ws&gt;
+    &lt;EXPR(&#39;i=&#39;)&gt; <strong>{</strong>
+<strong>        nqp::say(&#39;Inside we see: &#39; ~ $&lt;EXPR&gt;)</strong>
+<strong>    }</strong>
+    &#39;¡¡&#39;
+    &lt;O(|%conditional, :reducecheck&lt;ternary&gt;, :pasttype&lt;if&gt;)&gt;
+}</pre>
+<p>Compile and run:</p>
+<pre>$ ./perl6 -e&#39;say 3 ¿¿ 4 ¡¡ 5&#39;
+Inside we see: 4 
+4</pre>
+<p>It is quite difficult, though, to find the place where the actual logic of the ternary operator is defined. I would not even recommend doing that as homework 🙂 Nevertheless, come back tomorrow to see more details of the internals of the ternary operators.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-291" href="https://perl6.online/2018/01/11/infix-nature-of-ternary-operator-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-291" href="https://perl6.online/2018/01/11/infix-nature-of-ternary-operator-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-291" href="https://perl6.online/2018/01/11/infix-nature-of-ternary-operator-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-291-5afe9d9c04eed" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=291&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-291-5afe9d9c04eed" id="like-post-wrapper-139853928-291-5afe9d9c04eed"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

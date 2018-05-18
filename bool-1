@@ -1,0 +1,44 @@
+
+		<p>Today, we will be digging into the internals of the Bool type using the source code of Rakudo, <a href="https://github.com/rakudo/rakudo/blob/master/src/core/Bool.pm">available on GitHub</a>.</p>
+<p>Perl 6 is written in the Perl 6 and NQP (Not Quite Perl 6) languages, which makes it relatively easy to read the sources. Of course, there are many things that are not easy to understand or which are not reflected in the publicly available documentation of the Perl 6 language. Neither you can find the deep details in the <a href="http://allperlbooks.com/tag/perl6.0">Perl 6 books</a> so far. Anyway, this is still possible with some intermediate understanding of Perl 6.</p>
+<p>OK, so back to the src/core/Bool.pm file. It begins with a few BEGIN phasers that add some methods and multi-methods to the Bool class. We’ll talk about the details of metamodels and class construction next time. Today, the more interesting for us is what the methods of the Bool class are doing.</p>
+<h2>gist and perl</h2>
+<p>The <tt>gist</tt> and <tt>perl</tt> methods return the string representation of the object: <tt>gist</tt> is implicitly called when a variable is stringified, <tt>perl</tt> is supposed to be called directly. It works for any object in Perl 6, but of course, the behaviour should be defined somewhere. And here they are:</p>
+<pre>Bool.^add_method(&#39;gist&#39;, my proto method gist(|) {*});
+Bool.^add_multi_method(&#39;gist&#39;, my multi method gist(Bool:D:) { 
+    self ?? &#39;True&#39; !! &#39;False&#39;
+});
+Bool.^add_multi_method(&#39;gist&#39;, my multi method gist(Bool:U:) {
+    &#39;(Bool)&#39;
+});
+
+Bool.^add_method(&#39;perl&#39;, my proto method perl(|) {*});
+Bool.^add_multi_method(&#39;perl&#39;, my multi method perl(Bool:D:) {
+    self ?? &#39;Bool::True&#39; !! &#39;Bool::False&#39;
+});
+Bool.^add_multi_method(&#39;perl&#39;, my multi method perl(Bool:U:) {
+    &#39;Bool&#39; 
+});</pre>
+<p>Try out the methods in the following simple program:</p>
+<pre>my Bool $b = True;
+say $b;      <em># True</em>
+say &quot;[$b]&quot;;  <em># [True]</em>
+$b.perl.say; <em># Bool::True</em></pre>
+<p>As you can see, the <tt>True</tt> string is returned by the <tt>gist</tt> method, while the <tt>perl</tt> method returns <tt>Bool::True</tt>.</p>
+<p>Both methods are multi-methods, and in the above example, the version with a defined argument was used. If you look at the signatures, you will see that the methods are different in the way an argument is specified: <tt>Bool:D:</tt> or <tt>Bool:U:</tt>. The letters D and U stay for <em>defined</em> and <em>undefined</em>, correspondingly. The first colon adds an attribute to the type, while the second one indicates that the argument is actually an invocant.</p>
+<p>So, different versions of the methods are triggered depending on whether they are called on a defined or an undefined Boolean variable. To demonstrate the behaviour of the other two variants, simply remove the initialiser part from the code:</p>
+<pre>my Bool $b;
+say $b;      <em># (Bool)</em>
+$b.perl.say; <em># Bool</em></pre>
+<p>As the variable <tt>$b</tt> has a type, Perl 6 knows the type of the object, on which it should call methods. Then it is dispatched to the versions with the <tt>(Bool:U:)</tt> signature because the variable is not defined yet.</p>
+<p>When an undefined variable appears in the string, for example, <tt>say &quot;[$b]&quot;</tt>, the <tt>gist</tt> method is not called. Instead, you get an error message.</p>
+<pre>Use of uninitialized value $b of type Bool in string context.
+Methods .^name, .perl, .gist, or .say can be used to stringify it to something meaningful.
+ in block  at bool-2.pl line 3
+[]</pre>
+<p>The error message says that Perl knows of what type the variable was, but refuses to call a stringifying method.</p>
+<p>That’s all for today. Next time, we’ll look at other methods defined for the <tt>Bool</tt> data type.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair">
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

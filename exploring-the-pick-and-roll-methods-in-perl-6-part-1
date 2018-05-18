@@ -1,0 +1,119 @@
+
+		<p>Today, we’ll take a look at the implementation of the <tt>pick</tt> and <tt>roll</tt> methods. First, a reminder of how they work.</p>
+<h2>The User story</h2>
+<p>If called without arguments, the methods return a random element from a list (or an array, for example):</p>
+<pre>my @a = &#39;a&#39; .. &#39;z&#39;;
+say @a.pick; <em># b</em>
+say @a.roll; <em># u</em></pre>
+<p>When called with an integer argument N, the <tt>roll</tt> method returns N random elements, while <tt>pick</tt> returns N the elements, which are not repeated. If the initial list is shorter than N, <tt>pick</tt> returns fewer elements than your ask.</p>
+<pre>my @b = &#39;a&#39; .. &#39;d&#39;;
+
+say @b.pick(10); <em># (c a b d)</em>
+say @b.roll(10); <em># (a c a c c a b a b b)</em></pre>
+<h2>The OOP story</h2>
+<p>If you grep for <tt>method roll</tt>, you will see a big list of potential candidates:</p>
+<pre>src/core/Any.pm: proto method roll(|) is nodal {*}
+src/core/Any.pm: multi method roll() { self.list.roll }
+src/core/Any.pm: multi method roll($n) { self.list.roll($n) }
+src/core/Baggy.pm: proto method roll(|) {*}
+src/core/Baggy.pm: multi method roll(Baggy:D:) {
+src/core/Baggy.pm: multi method roll(Baggy:D: Whatever) {
+src/core/Baggy.pm: multi method roll(Baggy:D: Callable:D $calculate) {
+src/core/Baggy.pm: multi method roll(Baggy:D: $count) {
+src/core/Bool.pm: Bool.^add_method(&#39;roll&#39;, my proto method roll(|) {*});
+src/core/Bool.pm: Bool.^add_multi_method(&#39;roll&#39;, my multi method roll(Bool:U:) { nqp::p6bool(nqp::isge_n(nqp::rand_n(2e0), 1e0)) });
+src/core/Bool.pm: Bool.^add_multi_method(&#39;roll&#39;, my multi method roll(Bool:U: $n) { self.^enum_value_list.roll($n) });
+src/core/Enumeration.pm: multi method roll(::?CLASS:U:) { self.^enum_value_list.roll }
+src/core/Enumeration.pm: multi method roll(::?CLASS:U: \n) { self.^enum_value_list.roll(n) }
+src/core/Enumeration.pm: multi method roll(::?CLASS:D: *@pos) { self xx +?( @pos[0] // 1 ) }
+src/core/Hash.pm: multi method roll(::?CLASS:D:) {
+src/core/Hash.pm: multi method roll(::?CLASS:D: Callable:D $calculate) {
+src/core/Hash.pm: multi method roll(::?CLASS:D: Whatever $) { self.roll(Inf) }
+src/core/Hash.pm: multi method roll(::?CLASS:D: $count) {
+src/core/List.pm: proto method roll(|) is nodal {*}
+src/core/List.pm: multi method roll() {
+src/core/List.pm: multi method roll(Whatever) {
+src/core/List.pm: multi method roll(\number) {
+src/core/Map.pm: multi method roll(Map:D:) {
+src/core/Map.pm: multi method roll(Map:D: Callable:D $calculate) {
+src/core/Map.pm: multi method roll(Map:D: Whatever $) { self.roll(Inf) }
+src/core/Map.pm: multi method roll(Map:D: $count) {
+src/core/Mixy.pm: multi method roll(Mixy:D:) {
+src/core/Mixy.pm: multi method roll(Mixy:D: Whatever) {
+src/core/Mixy.pm: multi method roll(Mixy:D: Callable:D $calculate) {
+src/core/Mixy.pm: multi method roll(Mixy:D: $count) {
+src/core/Rakudo/Internals.pm: method roll(|c) { self.flat.roll(|c) }
+src/core/Range.pm: proto method roll(|) {*}
+src/core/Range.pm: multi method roll(Range:D: Whatever) {
+src/core/Range.pm: multi method roll(Range:D:) {
+src/core/Range.pm: multi method roll(Int(Cool) $todo) {
+src/core/Setty.pm: proto method roll(|) {*}
+src/core/Setty.pm: multi method roll(Setty:D:) {
+src/core/Setty.pm: multi method roll(Setty:D: Callable:D $calculate) {
+src/core/Setty.pm: multi method roll(Setty:D: Whatever) {
+src/core/Setty.pm: multi method roll(Setty:D: $count) {</pre>
+<p>For our today’s investigation, only two classes, Any and List, are interesting. In src/core/Any.pm, the definitions are just proxies:</p>
+<pre>proto method roll(|) is nodal {*}
+multi method roll()   { self.list.roll }
+multi method roll($n) { self.list.roll($n) }</pre>
+<p>So, if an object does not offer the <tt>roll</tt> method, it (the object) will be converted to a list, and then the <tt>roll</tt> method is called on it.</p>
+<p>The same story with <tt>pick</tt>:</p>
+<pre>proto method pick(|) is nodal {*}
+multi method pick()   { self.list.pick }
+multi method pick($n) { self.list.pick($n) }</pre>
+<h2>The List story</h2>
+<p>Now, to the actual work, which happens in the methods of the List class. Let us start with the simplest case when <tt>pick</tt> or <tt>roll</tt> are called with no arguments.</p>
+<pre>proto method roll(|) is nodal {*}
+multi method roll() {
+    self.is-lazy
+        ?? Failure.new(X::Cannot::Lazy.new(:action(&#39;.roll from&#39;)))
+        !! (my Int $elems = self.elems)
+        ?? nqp::atpos($!reified, $elems.rand.floor)
+        !! Nil
+}
+
+. . .
+
+proto method pick(|) is nodal {*}
+multi method pick(List:D:) {
+    self.is-lazy
+        ?? Failure.new(X::Cannot::Lazy.new(:action(&#39;.pick from&#39;)))
+        !! (my Int $elems = self.elems)
+        ?? nqp::atpos($!reified, $elems.rand.floor)
+        !! Nil
+}</pre>
+<p>The code of each method does the same. It is not quite clear why the signatures are inconsistent. Can’t we call <tt>pick</tt> on an undefined list? (The code below is tested in the REPL mode.)</p>
+<pre>&gt; my List $l;
+(List)
+
+&gt; $l.pick;
+<strong>Cannot resolve caller pick(List: )</strong>; none of these signatures match:
+    (List:D $: *%_)
+    (List:D $: Callable:D $calculate, *%_)
+    (List:D $: $number is copy, *%_)
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1
+
+&gt; $l.roll;
+<strong>Cannot look up attributes in a List type object</strong>
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>OK, nevertheless, the first thing the methods do is checking whether a list is not lazy. If it is, an exception happens:</p>
+<pre>&gt; my @a = 1...*;
+[...]
+
+&gt; @a.WHAT;
+(Array)
+
+&gt; @a.pick;
+<strong>Cannot .pick from a lazy list</strong>
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1
+
+&gt; @a.roll;
+<strong>Cannot .roll from a lazy list</strong>
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>Then, if the non-lazy list has elements, a random one is picked up and returned:</p>
+<pre>nqp::atpos($!reified, $elems.rand.floor)</pre>
+<p>Let me stop here for today. In this topic, we still have to explore the other usages of the methods: <tt>pick($N)</tt> and <tt>pick(*)</tt>.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-462" href="https://perl6.online/2018/02/02/exploring-the-pick-and-roll-methods-in-perl-6-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-462" href="https://perl6.online/2018/02/02/exploring-the-pick-and-roll-methods-in-perl-6-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-462" href="https://perl6.online/2018/02/02/exploring-the-pick-and-roll-methods-in-perl-6-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-462-5afe9d72d1184" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=462&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-462-5afe9d72d1184" id="like-post-wrapper-139853928-462-5afe9d72d1184"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

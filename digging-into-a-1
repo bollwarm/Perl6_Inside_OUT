@@ -1,0 +1,90 @@
+
+		<p>After a big work that we had yesterday to understand what’s going on when you try to subscript an array with a negative index, let’s see what actually happens behind the new syntax of getting the last element of an array as <tt>@a[*-1]</tt>.</p>
+<p>So, here’s a test program:</p>
+<pre>my @a = &lt;a b c&gt;;
+say @a[*-1];</pre>
+<p>There is an array of three elements and we are printing the last of them.</p>
+<p>On the syntax level, <tt>*-1</tt> is a block of code, namely <a href="https://docs.perl6.org/type/WhateverCode">WhateverCode</a>. Its task is to convert the construction to the index of the last element, in our case, the number 2.</p>
+<p>The square brackets after an array name are translated to a <tt>postcircumfix:&lt;[ ]&gt;</tt> sub call. There is a file in the source tree, src/core/array_slice.pm, that contains a huge number of different variants of that routine; and the first line advises keeping the file growing.</p>
+<pre># all sub postcircumfix [] candidates here please</pre>
+<p>The subs are grouped so that you can easily spot the desired ones with a clear comment above the block. Investigating the file, we can find the definition we need. We need a sub that takes a code block:</p>
+<pre># @a[-&gt;{}]
+multi sub postcircumfix:&lt;[ ]&gt;(\SELF, Callable:D $block ) is raw {
+    nqp::stmts(
+      (my $*INDEX = &#39;Effective index&#39;),
+      SELF[$block.pos(SELF)]
+    )
+}</pre>
+<p>Just to make it clear, this is how the WhateverCode class relates to the Callable role:</p>
+<pre>my class WhateverCode is Code { . . . }
+my class Code does Callable { . . . }</pre>
+<p>OK, so the <tt>*-1</tt> presence leads to the postcircumfix call above. The <tt>nqp::stmts</tt> call takes a list of NQP statements to execute. First, some dynamic variable is set to a string (is that efficient, btw?). Then, another postcircumfix call. Let us look at it carefully:</p>
+<pre>SELF[$block.pos(SELF)]</pre>
+<p>What is <tt>SELF</tt> here? It is a raw reference to the array in hand (see the signature of the postcircumfix sub). So, this line means <tt>@a[$block.pos(@a)]</tt> in terms of our program, where <tt>$block</tt> is a WhateverCode block created out of <tt>*-1</tt>.</p>
+<p>So, we’re subscripting the array again but this time another candidate of <tt>postcircumfix:&lt;[ ]&gt;</tt> matches:</p>
+<pre># @a[Int 1]
+multi sub postcircumfix:&lt;[ ]&gt;( \SELF, Int:D $pos ) is raw {
+    SELF.AT-POS($pos);
+}</pre>
+<p>Finally, it calls the <tt>AT-POS</tt> method that we saw last time. You may have guessed that at this point, the value of <tt>$pos</tt> is 2 for the three-element array.</p>
+<p>Take a step back, as we skipped the <tt>$block.pos(SELF)</tt> call. The type of the <tt>$block</tt> is WhateverCode, so look at src/core/WhateverCode.pm. Actually, the only existing method there is <tt>pos</tt>:</p>
+<pre>my class WhateverCode is Code {
+    # helper method for array slicing
+    <strong>method pos(WhateverCode:D $self: \list)</strong> {
+        nqp::if(
+          nqp::iseq_i(
+            nqp::getattr(
+              nqp::getattr($self,Code,&#39;$!signature&#39;),
+              Signature,
+              &#39;$!count&#39;
+         ),1),
+       $self(nqp::if(nqp::isconcrete(list),list.elems,0)),
+       $self(|(nqp::if(nqp::isconcrete(list),list.elems,0)
+         xx nqp::getattr(
+           nqp::getattr($self,Code,&#39;$!signature&#39;),
+           Signature,
+           &#39;$!count&#39;
+         )
+       ))
+      )
+    }
+}</pre>
+<p>A bit complicated but still let’s try reading it. So, first of all, the method takes a WhateverCode (as an invocant) and a list (as an argument). The <tt>nqp::iseq_i</tt> function compares two integers (you read its name as <em>is eq</em>, not <em>int seq</em>). If there is only one item in the signature, some actions are done with it, if there are more, all of them are touched  and collected with <tt>xx</tt>.</p>
+<p>The line for our example is:</p>
+<pre>$self(nqp::if(nqp::isconcrete(list),list.elems,0))</pre>
+<p>If I am correct, this is a call of the <tt>()</tt> postcircumfix method on a code block. So, basically, <tt>{* - 1}</tt> becomes <tt>(-&gt;{* - 1})(list.elems)</tt>. Its argument is the length of the array (<tt>nqp::isconcrete</tt> checks if <tt>list</tt> is an object, not a type object, and returns <tt>list.elems</tt>).</p>
+<h2>Exercise 1</h2>
+<p>So when you understand it (do you?), modify our initial program to explain the syntax to a friend.</p>
+<p>Step 1:</p>
+<pre>my @a = &lt;a b c&gt;;
+say @a[ <strong>-&gt; {* - 1}.() </strong>]; <em># c</em></pre>
+<p>Step 2:</p>
+<pre class="p1"><span class="s1">my @a = &lt;a b c&gt;;
+say @a[ <strong>-&gt; $n {$n - 1}.(@a.elems)</strong> ]; <em># </em></span><em><span class="s1">c</span></em></pre>
+<h2>Exercise 2</h2>
+<p>Explain the behaviour of the following cases:</p>
+<pre>my @a = &lt;a b c&gt;;
+say @a[* - *];         <em># a</em>
+say @a[* - * + * - 1]; <em># c</em></pre>
+<p>Answer: In this case, the second branch of <tt>$self(...)</tt> call is activated. The WhateverCode block wants two or three arguments, and the <tt>xx</tt> operator simply copies the value of <tt>list.elems</tt> the needed number of times, and then <tt>|</tt> flattens the list.</p>
+<h2>Some final notes</h2>
+<p>A couple of tiny notes to the above story.</p>
+<p>1. The <tt>$self(...)</tt> call for <tt>*-1</tt> also triggers the following sub (defined in src/core/Int.pm) to calculate the result:</p>
+<pre>multi sub infix:&lt;-&gt;(Int:D \a, Int:D \b --&gt; Int:D) {
+    nqp::sub_I(nqp::decont(a), nqp::decont(b), Int);
+}</pre>
+<p>2. Other forms of using a star for indexing an array also work, for example:</p>
+<pre>my @a = &lt;a b c&gt;;
+say @a[<strong>4 - *</strong>]; <em># b</em></pre>
+<p>3. A single <tt>*</tt> does not create a WhateverCode block, and another postcircumfix method involving a Whatever object is called instead:</p>
+<pre># @a[*]
+multi sub postcircumfix:&lt;[ ]&gt;( \SELF, <strong>Whatever:D</strong> ) is raw {
+    SELF[^SELF.elems];
+}</pre>
+<p>In this case, a slice containing the whole array is returned:</p>
+<pre>my @a = &lt;a b c&gt;;
+say @a[*]; <em># (a b c)</em></pre>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-255" href="https://perl6.online/2018/01/08/digging-into-a-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-255" href="https://perl6.online/2018/01/08/digging-into-a-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-255" href="https://perl6.online/2018/01/08/digging-into-a-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-255-5afe9da37126b" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=255&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-255-5afe9da37126b" id="like-post-wrapper-139853928-255-5afe9da37126b"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

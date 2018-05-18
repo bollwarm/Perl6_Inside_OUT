@@ -1,0 +1,88 @@
+
+		<p>At the beginning of the year, we <a href="https://perl6.online/2018/01/01/the-start-of-the-grammar/">began reading Perl 6’s Grammar</a>. That exercise is very interesting but not that easy.</p>
+<p>Today, let us take one more step and look at the <tt>statement</tt>.</p>
+<p>The statement token is relatively compact. It is reproduced here with some simplifications (refer to src/Perl6/Grammar.nqp for the full code):</p>
+<pre>token statement($*LABEL = &#39;&#39;) { 
+    &lt;!before &lt;.[\])}]&gt; | $ &gt;
+    &lt;!stopper&gt;
+    [
+    | &lt;label&gt; &lt;statement($*LABEL)&gt; { $*LABEL := &#39;&#39; if $*LABEL }
+    | &lt;statement_control&gt;
+    | &lt;EXPR&gt;
+        [
+        || &lt;?MARKED(&#39;endstmt&#39;)&gt;
+        || &lt;.ws&gt; &lt;statement_mod_cond&gt; &lt;statement_mod_loop&gt;?
+        || &lt;.ws&gt; &lt;statement_mod_loop&gt;
+            {
+                my $sp := $&lt;EXPR&gt;&lt;statement_prefix&gt;;
+                if $sp &amp;&amp; $sp&lt;sym&gt; eq &#39;do&#39; {
+                my $s := $&lt;statement_mod_loop&gt;&lt;sym&gt;;
+                $/.obs(&quot;do...&quot; ~ $s, &quot;repeat...while or repeat...until&quot;);
+            }
+        }
+    ]?
+    | &lt;?[;]&gt;
+    | &lt;?stopper&gt;
+    | {} &lt;.panic: &quot;Bogus statement&quot;&gt;
+    ]
+}</pre>
+<p>According to the definition, a statement cannot start with the closing <tt>]</tt>, <tt>)</tt>, or <tt>}</tt>. Neither it can be an empty string (don’t be confused by the word <em>before</em>).</p>
+<pre>&lt;!before &lt;.[\])}]&gt; | $ &gt;</pre>
+<p>If you are not familiar with Perl 6 regexes, this is a character class <tt>&lt;[  ]&gt;</tt> that includes the above-listed characters, having the square brackets escaped within the character class.</p>
+<p>The <tt>stopper</tt> rule is a bit difficult to track down immediately, so let us skip it for now.</p>
+<p>Finally, a list of alternatives follows in the pair of square brackets (which create a non-capturing group in Perl 6 regexes).</p>
+<p>One of the alternatives is a labelled statement:</p>
+<pre>&lt;label&gt; &lt;statement($*LABEL)&gt;</pre>
+<p>Notice that as rules and tokens are methods (and grammar is a class), you can pass parameters to them.</p>
+<p>A <tt>label</tt> is an identifier followed by a colon:</p>
+<pre>token label {
+    &lt;identifier&gt; &#39;:&#39; &lt;?[\s]&gt; &lt;.ws&gt;
+}</pre>
+<p>(Again, I do not show the code which is not important for us at the moment; real definition includes some NQP code.)</p>
+<p>Another alternative is a <tt>statement_control</tt>. It is a subject of separate research. Just look at the list of different rules and tokens that fall under the definition of statement controls:</p>
+<pre>proto rule statement_control         { &lt;...&gt; }
+
+rule statement_control:sym&lt;<strong>if</strong>&gt;       { . . . }
+rule statement_control:sym&lt;<strong>unless</strong>&gt;   { . . . }
+rule statement_control:sym&lt;<strong>without</strong>&gt;  { . . . }
+rule statement_control:sym&lt;<strong>while</strong>&gt;    { . . . }
+rule statement_control:sym&lt;<strong>repeat</strong>&gt;   { . . . }
+rule statement_control:sym&lt;<strong>for</strong>&gt;      { . . . }
+rule statement_control:sym&lt;<strong>whenever</strong>&gt; { . . . }
+rule statement_control:sym&lt;<strong>foreach</strong>&gt;  { . . . }
+token statement_control:sym&lt;<strong>loop</strong>&gt;    { . . . }
+rule statement_control:sym&lt;<strong>need</strong>&gt;     { . . . }
+token statement_control:sym&lt;<strong>import</strong>&gt;  { . . . }
+token statement_control:sym&lt;<strong>no</strong>&gt;      { . . . }
+token statement_control:sym&lt;<strong>use</strong>&gt;     { . . . }</pre>
+<p>Finally, a statement can be an expression, <tt>EXPR</tt>. An expression can be followed by one of the keywords like <tt>if</tt> or <tt>unless</tt>:</p>
+<pre>proto rule statement_mod_cond { &lt;...&gt; }
+
+rule statement_mod_cond:sym&lt;<strong>if</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;modifier_expr(&#39;if&#39;)&gt; }
+rule statement_mod_cond:sym&lt;<strong>unless</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;modifier_expr(&#39;unless&#39;)&gt; }
+rule statement_mod_cond:sym&lt;<strong>when</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;modifier_expr(&#39;when&#39;)&gt; }
+rule statement_mod_cond:sym&lt;<strong>with</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;modifier_expr(&#39;with&#39;)&gt; }
+rule statement_mod_cond:sym&lt;<strong>without</strong>&gt;{ &lt;sym&gt;&lt;.kok&gt; &lt;modifier_expr(&#39;without&#39;)&gt; }</pre>
+<pre>proto rule statement_mod_loop { &lt;...&gt; }
+
+rule statement_mod_loop:sym&lt;<strong>while</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;smexpr(&#39;while&#39;)&gt; }
+rule statement_mod_loop:sym&lt;<strong>until</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;smexpr(&#39;until&#39;)&gt; }
+rule statement_mod_loop:sym&lt;<strong>for</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;smexpr(&#39;for&#39;)&gt; }
+rule statement_mod_loop:sym&lt;<strong>given</strong>&gt; { &lt;sym&gt;&lt;.kok&gt; &lt;smexpr(&#39;given&#39;)&gt; }</pre>
+<p>The two alternative ending schemes:</p>
+<pre>|| &lt;.ws&gt; &lt;statement_mod_cond&gt; &lt;statement_mod_loop&gt;?
+|| &lt;.ws&gt; &lt;statement_mod_loop&gt;</pre>
+<p>Double vertical bar allows the grammar to stop after the first match. Unlike a single bar, which chooses the longest match.</p>
+<p>In the case the statement modifier comes with the <tt>do</tt> keyword, an error occurs:</p>
+<pre>{
+    my $sp := $&lt;EXPR&gt;&lt;statement_prefix&gt;;
+    if $sp &amp;&amp; $sp&lt;sym&gt; eq &#39;do&#39; {
+    my $s := $&lt;statement_mod_loop&gt;&lt;sym&gt;;
+    $/.obs(&quot;do...&quot; ~ $s, &quot;repeat...while or repeat...until&quot;);
+}</pre>
+<p>We already talked about this piece of code when we were discussing <a href="https://perl6.online/2017/12/30/obsolete-syntax-warnings-part-2/">error messages for obsolete syntax</a>.</p>
+<p>And it’s time to stop for today. See you tomorrow with more exciting details about Perl 6’s internals.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-399" href="https://perl6.online/2018/01/24/35-statement-in-the-grammar-of-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-399" href="https://perl6.online/2018/01/24/35-statement-in-the-grammar-of-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-399" href="https://perl6.online/2018/01/24/35-statement-in-the-grammar-of-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-399-5afe9d8102b17" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=399&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-399-5afe9d8102b17" id="like-post-wrapper-139853928-399-5afe9d8102b17"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

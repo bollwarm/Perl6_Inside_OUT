@@ -1,0 +1,68 @@
+
+		<p><a href="https://perl6.online/2018/02/13/55-fatrat-vs-rat-in-perl-6/">Yesterday</a>, we were digging into Rakudo Perl 6 to understand when a Rat value becomes a Num value. It turned out that if the value becomes too small, which means its denominator gets bigger and bigger, Rakudo starts using a Num value instead of Rat.</p>
+<p>We found the place where it happened. Today, let us make an exercise and see if it is possible that Perl 6 behaves differently, namely, it <a href="https://twitter.com/LearningPerl6/status/963929480430571520">expands the data type</a> instead of switching it to a floating point and losing accuracy.</p>
+<p>The change is simple. All you need is to update the <tt>if</tt>s inside the <tt>DIVIDE_N</tt> routine:</p>
+<pre>--- a/src/core/Rat.pm
++++ b/src/core/Rat.pm
+@@ -48,16 +48,14 @@ sub DIVIDE_NUMBERS(Int:D \nu, Int:D \de, \t1, \t2) {
+           ($numerator   := -$numerator),
+           ($denominator := -$denominator))),
+       nqp::if(
+<span style="color:#ff0000;">-        nqp::istype(t1, FatRat) || nqp::istype(t2, FatRat),
+</span><strong><span style="color:#339966;">+        nqp::istype(t1, FatRat) || nqp::istype(t2, FatRat) || $denominator &gt;= UINT64_UPPER,
+</span></strong>         nqp::p6bindattrinvres(
+           nqp::p6bindattrinvres(nqp::create(FatRat),FatRat,&#39;$!numerator&#39;,$numerator),
+           FatRat,&#39;$!denominator&#39;,$denominator),
+<span style="color:#ff0000;">-        nqp::if(
+-          $denominator &lt; UINT64_UPPER,
+</span>           nqp::p6bindattrinvres(
+             nqp::p6bindattrinvres(nqp::create(Rat),Rat,&#39;$!numerator&#39;,$numerator),
+<span style="color:#ff0000;">-            Rat,&#39;$!denominator&#39;,$denominator),
+-          nqp::p6box_n(nqp::div_In($numerator, $denominator)))))
+</span><strong><span style="color:#339966;">+            Rat,&#39;$!denominator&#39;,$denominator)
++        ))
+</span></strong> }
+</pre>
+<p>Now, there are two outcomes: either the routine generates a Rat value or a FatRat. The latter happens when the sub arguments were already FatRats or when the current Rat gets too close to zero.</p>
+<p>Compile and test our modified <tt>perl6</tt> executable with Newton’s algorithm from yesterday’s post:</p>
+<pre>my $N = 25;
+my @x = 
+    Rat.new(1, 1), 
+    -&gt; $x { 
+        $x - ($x ** 2 - $N) / (2 * $x)
+    } ... *;
+
+.WHAT.say for @x[0..10];
+.say for @x[1..10];</pre>
+<p>As expected, the first elements of the sequence are Rats, while the tail is made of FatRats:</p>
+<pre>(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+(FatRat)
+(FatRat)
+(FatRat)
+(FatRat)
+(FatRat)</pre>
+<p>Also, you can easily see it if you print the values:</p>
+<pre>13
+7.461538
+5.406027
+5.01524760
+5.0000231782539490
+5.0000000000537228965718724535111
+5.00000000000000000000028861496160410945540567902983713732806515
+5.000000000000000000000000000000000000000000008329859606174157518822601061625174583303232554885171687075417887439374231515823
+5.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000693865610585718905982734693675309615913812411108046914931948226816763601320201386971350204028084660605790650314446568089428143916887535905115787146371799888
+5.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004814494855534925123195523522159753005055993378092336823010386671077751892080269126953923957066141452855241262256569975702944214065988292758274535222239622977104185030432093986146346015004230914044314506580063758070896734658461687838556535528402765772220596451598003813021305355635793333485373058987453787504731</pre>
+<h2 style="text-align:center;">* * *</h2>
+<p>I don’t know what is better — to have two different types for a rational number (not counting the Rational role) or one type that can hold both ‘narrow’ and ‘wide’ values, or a mechanism that switches to a wider data type when there is not enough capacity. I feel the best is the last option (in the case that FatRat and Rat are using different types for storing numerators and denominators, of course).</p>
+<p>As far as I understand, that was exactly the <a href="http://design.perl6.org/S03.html#Symbolic_unary_precedence">original thought</a>:</p>
+<p style="padding-left:30px;"><em>For values that do not already do the <code>Numeric</code> role, the narrowest appropriate type of <code>Int</code>, <code>Rat</code>, <code>Num</code>, or <code>Complex</code> will be returned; however, string containing two integers separated by a <code>/</code>will be returned as a <code>Rat</code> (or a <code>FatRat</code> if the denominator overflows an <code>int64</code>).</em></p>
+<p>Also it feels more natural to silently add more space for more digits instead of breaking the idea of having the Rat type. Anyway, there are different opinions on this, but that should not stop Perl 6 from being widespread.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-532" href="https://perl6.online/2018/02/14/56-a-bit-more-on-rat-vs-fatrat-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-532" href="https://perl6.online/2018/02/14/56-a-bit-more-on-rat-vs-fatrat-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-532" href="https://perl6.online/2018/02/14/56-a-bit-more-on-rat-vs-fatrat-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-532-5afe9d5c5ce0f" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=532&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-532-5afe9d5c5ce0f" id="like-post-wrapper-139853928-532-5afe9d5c5ce0f"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

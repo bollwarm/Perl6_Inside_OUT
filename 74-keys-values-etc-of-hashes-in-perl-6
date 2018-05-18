@@ -1,0 +1,63 @@
+
+		<p>In Perl 6, you can restrict the content of a variable container by specifying its type, for example:</p>
+<pre>my Int $i;</pre>
+<p>There is only one value in a scalar variable. You can extend the concept to arrays and let its element to keep only integers, as it is done in the next example:</p>
+<pre>&gt; my Int @i;
+[]
+
+&gt; @i.push(42);
+[42]
+
+&gt; @i.push(&#39;Hello&#39;);
+Type check failed in assignment to @i;
+expected Int but got Str (&quot;Hello&quot;)
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>Hashes keeps pairs, so you can specify the type of both keys and values. The syntax is not deductible from the above examples.</p>
+<p>First, let us announce the type of the value:</p>
+<pre class="p1"><span class="s1">my Str %s;</span></pre>
+<p>Now, it is possible to have strings as values:</p>
+<pre>&gt; %s&lt;Hello&gt; = &#39;World&#39;
+World
+
+&gt; %s&lt;42&gt; = &#39;Fourty-two&#39;
+Fourty-two</pre>
+<p>But it’s not possible to save integers:</p>
+<pre>&gt; %s&lt;x&gt; = 100
+Type check failed in assignment to %s;
+expected Str but got Int (100)
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>(By the way, notice that in the case of <tt>%s&lt;42&gt;</tt> the key is a string.)</p>
+<p>To specify the type of the second dimension, namely, of the hash keys, give the type in curly braces:</p>
+<pre>my %r{Rat};</pre>
+<p>This variable is also referred to as <em>object hash</em>.</p>
+<p>Having this, Perl expects you to have <tt>Rat</tt> keys for this variable:</p>
+<pre>&gt; %r&lt;22/7&gt; = pi
+3.14159265358979
+
+&gt; %r
+{22/7 =&gt; 3.14159265358979}</pre>
+<p>Attempts to use integers or strings, for example, fail:</p>
+<pre>&gt; %r&lt;Hello&gt; = 1
+Type check failed in binding to parameter &#39;key&#39;;
+expected Rat but got Str (&quot;Hello&quot;)
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1
+
+&gt; %r{23} = 32
+Type check failed in binding to parameter &#39;key&#39;;
+expected Rat but got Int (23)
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p>Finally, you can specify the types of both keys and values:</p>
+<pre>my Str %m{Int};</pre>
+<p>This variable can be used for translating month number to month names but not vice versa:</p>
+<pre>&gt; %m{3} = &#39;March&#39;
+March
+
+&gt; %m&lt;March&gt; = 3
+Type check failed in binding to parameter &#39;key&#39;;
+expected Int but got Str (&quot;March&quot;)
+  in block &lt;unit&gt; at &lt;unknown file&gt; line 1</pre>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-718" href="https://perl6.online/2018/04/08/74-keys-values-etc-of-hashes-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-718" href="https://perl6.online/2018/04/08/74-keys-values-etc-of-hashes-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-718" href="https://perl6.online/2018/04/08/74-keys-values-etc-of-hashes-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-718-5afe9d388d033" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=718&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-718-5afe9d388d033" id="like-post-wrapper-139853928-718-5afe9d388d033"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

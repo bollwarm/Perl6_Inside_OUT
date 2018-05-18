@@ -1,0 +1,100 @@
+
+		<p>Before moving to the second part of the <a href="https://perl6.online/2018/02/15/57-examining-the-real-role-of-perl-6-part-1/">Real role</a>, let us stop on the <tt>polymod</tt> method of the Int class.</p>
+<p>The method takes a number and a list of arbitrary numbers (units) and returns the corresponding multipliers. So that you can easily say that 550 seconds, for example, is 9 minutes and 10 seconds:</p>
+<pre>&gt; 550.polymod(60)
+(10 9)</pre>
+<p>In the method call, the value of 60 is the number of seconds in a minute. In the result, 9 is a number of minutes, and 10 is a remainder, which is a number of seconds. So, 550 seconds = 10 second + 9 minutes.</p>
+<p>If you want more details, add more units. For example, what is it 32768 seconds?</p>
+<pre>&gt; 32768.polymod(60, 60, 24)
+(8 6 9 0)</pre>
+<p>It is 8 seconds, 6 minutes, 9 hours, and 0 days.</p>
+<p>Similarly, 132768 seconds are 1 day, 12 hours, 52 minutes, and 48 seconds:</p>
+<pre>&gt; 132768.polymod(60, 60, 24)
+(48 52 12 1)</pre>
+<p>Honestly, it was quite difficult for me to understand how it works and how to read the result.</p>
+<p>Another example from the documentation was even harder:</p>
+<pre>&gt; 120.polymod(1, 10, 100)
+(0 0 12 0)</pre>
+<p>What does 12 mean? It is, obviously, 12 times 10. OK, But I asked to give me some information about the number of hundreds. My expectation is to have it like that: 120 is 2 times 10 and 1 time 100.</p>
+<p>Try 121:</p>
+<pre>&gt; 121.polymod(1, 10)
+(0 1 12)</pre>
+<p>Erm, why zero? Zero plus 1 times 1 plus 12 times 10? Brr. Ah! You don’t need to specify an explicit 1 in the arguments:</p>
+<pre>&gt; 121.polymod(10)
+(1 12)</pre>
+<p>That makes more sense. Except the fact that I still don’t know how many hundreds are there in 121:</p>
+<pre>&gt; 121.polymod(10, 100)
+(1 12 0)
+&gt; 121.polymod(100, 10)
+(21 1 0)</pre>
+<p>It’s time to take a look at the source code (src/core/Int.pm):</p>
+<pre>method polymod(Int:D: +@mods) {
+    fail X::OutOfRange.new(
+        :what(&#39;invocant to polymod&#39;), :got(self), :range&lt;0..^Inf&gt;
+    ) if self &lt; 0; 
+
+    gather { 
+         my $more = self; 
+         if @mods.is-lazy { 
+             for @mods -&gt; $mod {
+                $more
+                    ?? $mod
+                    ?? take $more mod $mod
+                    !! Failure.new(X::Numeric::DivideByZero.new:
+                            using =&gt; &#39;polymod&#39;, numerator =&gt; $more)
+                    !! last;
+                $more = $more div $mod;
+            }
+            take $more if $more;
+        }
+        else {
+            for @mods -&gt; $mod {
+                $mod
+                    ?? take $more mod $mod
+                    !! Failure.new(X::Numeric::DivideByZero.new:
+                        using =&gt; &#39;polymod&#39;, numerator =&gt; $more);
+                $more = $more div $mod;
+            }
+            take $more;
+        }
+    }
+}</pre>
+<p>The method has two branches, one for lazy lists, and another one for non-lazy lists. Let us only focus on the second branch for now:</p>
+<pre>for @mods -&gt; $mod {
+    $mod
+        ?? take $more mod $mod
+        !! Failure.new(X::Numeric::DivideByZero.new:
+                       using =&gt; &#39;polymod&#39;, numerator =&gt; $more);
+    $more = $more div $mod;
+}
+
+take $more;</pre>
+<p>OK, the last <tt>take</tt> takes the remainder, that’s easy. In the loop, you divide the number by the next unit and then ‘count’ the intermediate reminder.</p>
+<p>I would say I would implement it differently and switch the operators:</p>
+<pre>  for @mods -&gt; $mod {
+      $mod
+<span style="color:#ff0000;">-           ?? take $more mod $mod</span>
+<span style="color:#339966;">+           ?? take $more div $div</span>
+          !! Failure.new(X::Numeric::DivideByZero.new:
+                         using =&gt; &#39;polymod&#39;, numerator =&gt; $more);
+<span style="color:#ff0000;">-      $more = $more div $mod;</span>
+<span style="color:#339966;">+      $more = $more mod $mod;</span>
+  }
+
+  take $more;</pre>
+<p>With this code, I can get the number of hundreds, tens, and ones in 121:</p>
+<pre>&gt; 121.polymod(100, 10, 1)
+(1 2 1 0)</pre>
+<p>OK, let’s avoid two 1s:</p>
+<pre>&gt; 1234.polymod(1000, 100, 10, 1)
+(1 2 3 4 0)</pre>
+<p>Also works fine with the earlier example with seconds:</p>
+<pre>&gt; 132768.polymod(86400, 3600, 60)
+(1 12 52 48)</pre>
+<p>It is 1 day, 12 hours, 52 minutes, and 48 seconds.</p>
+<p>As you see, now you have to use explicit units (8600 instead of 24) and you have to sort them in descending order, but now I can understand and explain the result, which I could hardly do for the original method.</p>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-538" href="https://perl6.online/2018/02/16/58-a-word-on-polymod-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-538" href="https://perl6.online/2018/02/16/58-a-word-on-polymod-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-538" href="https://perl6.online/2018/02/16/58-a-word-on-polymod-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-538-5afe9d59dee09" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=538&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-538-5afe9d59dee09" id="like-post-wrapper-139853928-538-5afe9d59dee09"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

@@ -1,0 +1,55 @@
+
+		<p>During the last few days, we talked a lot about the <tt>Real</tt> role. Lets us then look at it more precisely. The code is located in the src/core/Real.pm file.</p>
+<p>It contains the role itself and a few subroutines implementing different infixes. The <tt>Real</tt> role in its turn implements the <tt>Numeric</tt> role:</p>
+<pre>my role Real does Numeric {
+    . . .
+}</pre>
+<p>It is interesting that the class definition also needs some knowledge about the <tt>Complex</tt> class, that’s why there is a forward class declaration in the first line of the file:</p>
+<pre>my class Complex { ... }</pre>
+<p>The <tt>Real</tt> role defines many trigonometrical functions as methods, and as we already saw, <a href="https://perl6.online/2018/02/11/53-going-over-the-bridge-part-1/">they are using the <tt>Bridge</tt> method</a>:</p>
+<pre>method sqrt() { self.Bridge.sqrt }
+method rand() { self.Bridge.rand }
+method sin() { self.Bridge.sin }
+method asin() { self.Bridge.asin }
+method cos() { self.Bridge.cos }
+method acos() { self.Bridge.acos }
+method tan() { self.Bridge.tan }
+method atan() { self.Bridge.atan }</pre>
+<p>Another set of methods include generic methods that manipulate the value directly:</p>
+<pre>method abs() { self &lt; 0 ?? -self !! self }
+proto method round(|) {*}
+multi method round(Real:D:) {
+    (self + 1/2).floor; # Rat NYI here, so no .5
+}
+multi method round(Real:D: Real() $scale) {
+    (self / $scale + 1/2).floor * $scale;
+}
+method truncate(Real:D:) {
+    self == 0 ?? 0 !! self &lt; 0 ?? self.ceiling !! self.floor
+}</pre>
+<p>There’s a really interesting and useful variant of the <tt>round</tt> method, which allows you to align the number to the grid you need:</p>
+<pre>&gt; 11.5.round(3)
+12
+&gt; 10.1.round(3)
+9</pre>
+<p>Another set of methods are used to convert a number to different data types:</p>
+<pre>method Rat(Real:D: Real $epsilon = 1.0e-6) { self.Bridge.Rat($epsilon) }
+method Complex() { Complex.new(self.Num, 0e0) }
+multi method Real(Real:D:) { self }
+multi method Real(Real:U:) {
+    self.Mu::Real; # issue a warning;
+    self.new
+}
+method Bridge(Real:D:) { self.Num }
+method Int(Real:D:) { self.Bridge.Int }
+method Num(Real:D:) { self.Bridge.Num }
+multi method Str(Real:D:) { self.Bridge.Str }</pre>
+<p>And here we have a problem in the matrix. The <tt>Bridge</tt> method is defined in such a way that it calls the <tt>Num</tt> method. In its turn, <tt>Num</tt> is calling <tt>Bridge</tt>, which calls <tt>Num</tt>.</p>
+<p>Run one of the following lines of code, and Rakudo will hang:</p>
+<pre>Real.new.say;</pre>
+<pre>Real.new.Str;</pre>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-535" href="https://perl6.online/2018/02/15/57-examining-the-real-role-of-perl-6-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-535" href="https://perl6.online/2018/02/15/57-examining-the-real-role-of-perl-6-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-535" href="https://perl6.online/2018/02/15/57-examining-the-real-role-of-perl-6-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-535-5afe9d5ac65f3" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=535&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-535-5afe9d5ac65f3" id="like-post-wrapper-139853928-535-5afe9d5ac65f3"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

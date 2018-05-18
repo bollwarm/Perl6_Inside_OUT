@@ -1,0 +1,61 @@
+
+		<p>In Perl 6, you can ask the sequence operator to build a desired sequence for you. It can be arithmetic or geometric progression. All you need is to show the beginning of the sequence to Perl, for example:</p>
+<pre>.say for 3, 5 ... 11;</pre>
+<p>This prints numbers 3, 5, 7, 9, and 11. Or:</p>
+<pre>.say for 2, 4, 8 ... 64;</pre>
+<p>This code prints powers of 2 from 2 to 64: 2, 4, 8, 16, 32, and 64.</p>
+<p>I am going to try understanding how that works in Rakudo. First of all, look into the src/core/operators.pm file, which keeps a lot of different operators, including a few versions of the <tt>...</tt> operator. The one we need looks really simple:</p>
+<pre>multi sub infix:&lt;...&gt;(\a, Mu \b) {
+    Seq.new(SEQUENCE(a, b).iterator)
+}</pre>
+<p>Now, the main work is done inside the <tt>SEQUENCE</tt> sub. Before we dive there, it is important to understand what its arguments <tt>a</tt> and <tt>b</tt> receive.</p>
+<p>In the case of, say, <tt>3, 5 ... 11</tt>, the first argument is a list <tt>3, 5</tt>, and the second argument is a single value <tt>11</tt>.</p>
+<p>These values land in the parameters of the routine:</p>
+<pre>sub SEQUENCE(\left, Mu \right, :$exclude_end) {
+    . . .
+}</pre>
+<p>What happens next is not that easy to grasp. Here is a screenshot of the complete function:</p>
+<p><img alt="sequence" class=" size-large wp-image-687 aligncenter" data-attachment-id="687" data-comments-opened="1" data-image-description="" data-image-meta="{&quot;aperture&quot;:&quot;0&quot;,&quot;credit&quot;:&quot;&quot;,&quot;camera&quot;:&quot;&quot;,&quot;caption&quot;:&quot;&quot;,&quot;created_timestamp&quot;:&quot;0&quot;,&quot;copyright&quot;:&quot;&quot;,&quot;focal_length&quot;:&quot;0&quot;,&quot;iso&quot;:&quot;0&quot;,&quot;shutter_speed&quot;:&quot;0&quot;,&quot;title&quot;:&quot;&quot;,&quot;orientation&quot;:&quot;0&quot;}" data-image-title="sequence" data-large-file="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=148" data-medium-file="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=43" data-orig-file="https://inperl6.files.wordpress.com/2018/03/sequence.png" data-orig-size="1016,7042" data-permalink="https://perl6.online/2018/03/02/68-the-smartness-of-the-sequence-operator-in-perl-6-part-1/sequence/" height="1024" sizes="(max-width: 148px) 100vw, 148px" src="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=148&amp;h=1024" srcset="https://inperl6.files.wordpress.com/2018/03/sequence.png?w=148&amp;h=1024 148w, https://inperl6.files.wordpress.com/2018/03/sequence.png?w=296&amp;h=2048 296w" width="148"></p>
+<p>It contains about 350 lines of code and includes a couple of functions. Nevertheless, let’s try.</p>
+<p>What you see first, is creating iterators for both left and right operands:</p>
+<pre>my \righti := (nqp::iscont(right) ?? right !! [right]).iterator;</pre>
+<pre>my \lefti := left.iterator;</pre>
+<p>Then, the code loops over the left operand and builds an array <tt>@tail</tt> out of its data:</p>
+<pre>while !((my \value := lefti.pull-one) =:= IterationEnd) {
+    $looped = True;
+    if nqp::istype(value,Code) { $code = value; last }
+    if $end_code_arity != 0 {
+        @end_tail.push(value);
+        if +@end_tail &gt;= $end_code_arity {
+            @end_tail.shift xx (@end_tail.elems - $end_code_arity)
+                unless $end_code_arity ~~ -Inf;
+
+            if $endpoint(|@end_tail) {
+                $stop = 1;
+                @tail.push(value) unless $exclude_end;
+                last;
+            }
+        }
+    }
+    elsif value ~~ $endpoint {
+        $stop = 1;
+        @tail.push(value) unless $exclude_end;
+        last;
+    }
+    @tail.push(value);
+}</pre>
+<p>I leave you reading and understand this piece of code as an exercise, but for the given example, the <tt>@tail</tt> array will just contain two values: 3 and 5.</p>
+<pre>&gt; .say for 3,5...11;
+<span style="color:#800080;">multi sub infix:&lt;...&gt;(\a, Mu \b)</span>
+<span style="color:#800080;">List    <span style="color:#008000;"># nqp::say(a.^name);</span></span>
+<span style="color:#800080;">~~3     <span style="color:#008000;"># nqp::say(&#39;~~&#39; ~ value);</span></span>
+<span style="color:#800080;">~~5     <span style="color:#008000;"># nqp::say(&#39;~~&#39; ~ value);</span></span>
+<span style="color:#800080;">elems=2 <span style="color:#008000;"># nqp::say(&#39;elems=&#39;~@tail.elems);</span></span>
+<span style="color:#800080;">0=3     <span style="color:#008000;"># nqp::say(&#39;0=&#39;~@tail[0]);</span></span>
+<span style="color:#800080;">1=5     <span style="color:#008000;"># nqp::say(&#39;1=&#39;~@tail[1]);</span></span></pre>
+<p>This output shows some debug data print outs that I added to the source code to see how it works. The green comments show the corresponding print instructions.</p>
+<p>That’s it for today. See you tomorrow with more stuff from the sequence operator. Tomorrow, we have to understand how the list <tt>3, 5</tt> tells Perl 6 to generate increasing values with step 1.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-686" href="https://perl6.online/2018/03/02/68-the-smartness-of-the-sequence-operator-in-perl-6-part-1/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-686" href="https://perl6.online/2018/03/02/68-the-smartness-of-the-sequence-operator-in-perl-6-part-1/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-686" href="https://perl6.online/2018/03/02/68-the-smartness-of-the-sequence-operator-in-perl-6-part-1/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-686-5afe9d4975b22" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=686&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-686-5afe9d4975b22" id="like-post-wrapper-139853928-686-5afe9d4975b22"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

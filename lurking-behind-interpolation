@@ -1,0 +1,55 @@
+
+		<p>In the previous articles, we’ve seen that the undefined value cannot be easily interpolated in a string, as an exception occurs. Today, our goal is to see where exactly that happens in the source code of Rakudo.</p>
+<p>So, as soon as we’ve looked at the Boolean values, let’s continue with them. Open perl6 in the REPL mode and create a variable:</p>
+<pre>$ perl6
+To exit type &#39;exit&#39; or &#39;^D&#39;
+&gt; my $b
+(Any)</pre>
+<p>The variable is undefined, so be ready to get an exception when interpolating it:</p>
+<pre>&gt; &quot;$b&quot;
+Use of uninitialized value $b of type Any in string context.
+Methods .^name, .perl, .gist, or .say can be used to stringify it to something meaningful.
+ in block  at  line 1</pre>
+<p>Interpolation uses the <tt>Str</tt> method. For undefined values, this method is absent in the Bool class. So we have to trace back to the Mu class, where we can see the following collection of base methods:</p>
+<pre>proto method Str(|) {*}
+
+multi method Str(Mu:U \v:) {
+   my $name = (defined($*VAR_NAME) ?? $*VAR_NAME !! try v.VAR.?name) // &#39;&#39;;
+   $name ~= &#39; &#39; if $name ne &#39;&#39;;
+ 
+   warn &quot;Use of uninitialized value {$name}of type {self.^name} in string&quot;
+      ~ &quot; context.\nMethods .^name, .perl, .gist, or .say can be&quot;
+      ~ &quot; used to stringify it to something meaningful.&quot;;
+   &#39;&#39;
+}
+
+multi method Str(Mu:D:) {
+    nqp::if(
+        nqp::eqaddr(self,IterationEnd),
+        &quot;IterationEnd&quot;,
+        self.^name ~ &#39;&lt;&#39; ~ nqp::tostr_I(nqp::objectid(self)) ~ &#39;&gt;&#39;
+    )
+}</pre>
+<p>The proto-definition gives the pattern for the <tt>Str</tt> methods. The vertical bar in the signature indicates that the <tt>proto</tt> does not validate the type of the argument and can also capture more arguments.</p>
+<p>In the <tt>Str(Mu:U)</tt> method you can easily see the text of the error message. This method is called for the undefined variable. In our case, with the Boolean variable, there’s no <tt>Str(Bool:U)</tt> method in the Bool class, so the call is dispatched to the method of the Mu class.</p>
+<p>Notice how the variable name is obtained:</p>
+<pre>my $name = (defined($*VAR_NAME) ?? $*VAR_NAME !! try v.VAR.?name) // &#39;&#39;;</pre>
+<p>It tries either the dynamic variable <tt>$*VAR_NAME</tt> or the <tt>name</tt> method of the <tt>VAR</tt> object.</p>
+<p>You can easily see which branch is used: just add a couple of printing instructions to the Mu class and recompile Rakudo:</p>
+<pre>proto method Str(|) {*}
+multi method Str(Mu:U \v:) {
+    warn &quot;VAR_NAME=$*VAR_NAME&quot; if defined $*VAR_NAME;
+    warn &quot;v.VAR.name=&quot; ~ v.VAR.name if v.VAR.?name;
+    . . .</pre>
+<p>Now execute the same interpolation:</p>
+<pre>&gt; my $b ;
+(Any)
+&gt; &quot;$b&quot;
+VAR_NAME=$b
+  in block  at  line 1</pre>
+<p>So, the name was taken from the <tt>$*VAR_NAME</tt> variable.</p>
+<p>What about the second multi-method <tt>Str(Mu:D:)</tt>? It is important to understand that it will not be called for a defined Boolean object because the Bool class has a proper variant already.</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-77" href="https://perl6.online/2017/12/25/lurking-behind-interpolation/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-77" href="https://perl6.online/2017/12/25/lurking-behind-interpolation/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-77" href="https://perl6.online/2017/12/25/lurking-behind-interpolation/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-77-5afe9dbd6d523" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=77&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-77-5afe9dbd6d523" id="like-post-wrapper-139853928-77-5afe9dbd6d523"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

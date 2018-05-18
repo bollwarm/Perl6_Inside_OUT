@@ -1,0 +1,102 @@
+
+		<p>Yesterday, we talked about how modification of the value such as <tt><a href="https://perl6.online/2018/02/06/48-how-does-0-but-true-work-in-perl-6/">0 but True</a></tt> works in Rakudo Perl 6. Today, we’ll try to fix a missing fragment in the implementation, which does not let you correctly dumping an object with the <tt>perl</tt> method (there is a <a href="https://rt.perl.org/Public/Bug/Display.html?id=126097">bug report #126097</a> for that).</p>
+<p>Let us see what happens now:</p>
+<pre>$ perl6
+To exit type &#39;exit&#39; or &#39;^D&#39;
+&gt; my $v = 0 but True;
+0
+&gt; <span style="color:#0000ff;"><strong>$v.perl</strong>
+<strong>0</strong></span></pre>
+<p>The result of calling <tt>perl</tt> is 0, so the information about the mixed-in Boolean role is lost. Our goal for today is to understand why and how to fix that.</p>
+<p>First of all, we should realise which routine is triggered when you call it as <tt>$v.perl</tt>. If you add a Boolean role, you effectively add the <tt>Bool</tt> method to the (cloned) object:</p>
+<pre>&gt; $v.^methods
+(<span style="color:#0000ff;"><strong>Bool</strong></span> Range asech perl truncate acosech sin ACCEPTS asinh floor abs asec cosec acotan ceiling acos acosec unpolar exp acotanh gist Num round DUMP asin log10 expmod msb FatRat isNaN cotanh atanh sign sqrt Bridge atan2 tan acosh conj narrow base Str Numeric new pred cosh sech log Rat roots cotan sinh tanh is-prime Bool sec Real Int cis cos rand succ chr polymod Capture WHICH lsb cosech Complex atan)</pre>
+<p>If you mix-in, for example, an integer, you add an <tt>Int</tt> method:</p>
+<pre>&gt; my $x = 0 but 42;
+0
+&gt; $x.Int
+42
+&gt; $x.^methods
+(<span style="color:#0000ff;"><strong>Int</strong></span> Range asech perl truncate acosech sin ACCEPTS asinh floor abs asec cosec acotan ceiling acos acosec unpolar exp acotanh gist Num round DUMP asin log10 expmod msb FatRat isNaN cotanh atanh sign sqrt Bridge atan2 tan acosh conj narrow base Str Numeric new pred cosh sech log Rat roots cotan sinh tanh is-prime Bool sec Real Int cis cos rand succ chr polymod Capture WHICH lsb cosech Complex atan)</pre>
+<p>In both examples, the <tt>perl</tt> method comes from the Int class:</p>
+<pre>multi method perl(Int:D:) {
+    self.Str;
+}</pre>
+<p>It knows nothing about the <tt>but</tt> clause. One of the ways is to modify it so that it tries to test if there are mixed-in roles in the object. Probably, this is not the best solution as it affects all the other objects that might use the method.</p>
+<p>Let us solve it differently and instead of teaching the ‘global’ method just add our own method to the object at the moment the <tt>but</tt> infix is processed. Refer to the <a href="https://perl6.online/2018/02/06/48-how-does-0-but-true-work-in-perl-6/">previous post</a> to refresh the details about the infix.</p>
+<p>First, add a method that only prints the <tt>but</tt> part. Add the following lines to the <tt>GENERATE-ROLE-FROM-VALUE</tt> function:</p>
+<pre>my $perl_meth := method () { <span style="color:#0000ff;"><strong>&quot; but $val&quot;</strong></span> };
+$perl_meth.set_name(&#39;perl&#39;);
+$role.^add_method(&#39;perl&#39;, $perl_meth);</pre>
+<p>This is done exactly in the same way as the Bool method would be added for <tt>0 but True</tt>.</p>
+<p>Compile and test:</p>
+<pre>&gt; my $v = 0 but True;
+0
+&gt; $v.perl
+<span style="color:#0000ff;"><strong> but True</strong></span></pre>
+<p>It works as expected but, of course, only the alternative value is printed. Also, check the list of the methods on our object:</p>
+<pre>&gt; $v.^methods
+(<span style="color:#0000ff;"><strong>perl</strong></span> Bool Range asech <span style="color:#0000ff;"><strong>perl</strong></span> truncate acosech sin ACCEPTS asinh floor abs asec cosec acotan ceiling acos acosec unpolar exp acotanh gist Num round DUMP asin log10 expmod msb FatRat isNaN cotanh atanh sign sqrt Bridge atan2 tan acosh conj narrow base Str Numeric new pred cosh sech log Rat roots cotan sinh tanh is-prime Bool sec Real Int cis cos rand succ chr polymod Capture WHICH lsb cosech Complex atan)</pre>
+<p>You see that there are two <tt>perl</tt> methods now. And, actually, to dump the original value, we just need to call the original method and concatenate its result with our additional string. Unfortunately, it is not that easy to do that from the <tt>GENERATE-ROLE-FROM-VALUE</tt> function as it only takes a value, not the object or its class. You can try using the <tt>$?CLASS</tt> variable or just copy the body of the function to the infix body, which I did and got the following code. Notice how I call the original <tt>perl</tt> method:</p>
+<pre>multi sub infix:&lt;but&gt;(Mu \obj, Mu:D $val) is raw {
+    my $role := Metamodel::ParametricRoleHOW.new_type();
+    my $meth := method () { $val };
+    $meth.set_name($val.^name);
+    $role.^add_method($meth.name, $meth);
+
+ <strong>  <span style="color:#339966;"> my $perl_meth := method () <span style="color:#0000ff;">{ obj.perl ~ &quot; but $val&quot; }</span>;
+    $perl_meth.set_name(&#39;perl&#39;);
+    $role.^add_method(&#39;perl&#39;, $perl_meth);</span></strong>
+
+    $role.^set_body_block(
+        -&gt; |c { nqp::list($role, nqp::hash(&#39;$?CLASS&#39;, c&lt;$?CLASS&gt;)) });
+
+    obj.clone.^mixin($role.^compose);
+}</pre>
+<p>Compile and test:</p>
+<pre>&gt; my $v = 0 but True;
+0
+&gt; $v.perl
+<span style="color:#0000ff;"><strong>0 but True</strong></span>
+
+&gt; $v = 42 but False;
+42
+&gt; $v.perl
+<span style="color:#0000ff;"><strong>42 but False</strong></span>
+&gt; ?$v
+False</pre>
+<p>The goal has been achieved. The only thing that is not really cool is duplication of code. What if we just pass the prepared version of the <tt>perl</tt> method to the routine, and it will compose it to the object?</p>
+<pre>multi sub infix:&lt;but&gt;(Mu \obj, Mu:D $val) is raw {
+    <span style="color:#0000ff;"><strong>my $perl_meth := method () { obj.perl ~ &quot; but $val&quot; };</strong></span>
+
+    obj.clone.^mixin(GENERATE-ROLE-FROM-VALUE($val, <span style="color:#0000ff;"><strong>$perl_meth</strong></span>));
+}
+
+sub GENERATE-ROLE-FROM-VALUE($val, <span style="color:#0000ff;"><strong>$perl_meth?</strong></span>) {
+    my $role := Metamodel::ParametricRoleHOW.new_type();
+    my $meth := method () { $val };
+    $meth.set_name($val.^name);
+    $role.^add_method($meth.name, $meth);
+
+   <span style="color:#0000ff;"><strong> if $perl_meth {</strong>
+<strong>        $perl_meth.set_name(&#39;perl&#39;);</strong>
+<strong>        $role.^add_method(&#39;perl&#39;, $perl_meth);</strong>
+<strong>    }</strong>
+</span>
+    $role.^set_body_block(
+        -&gt; |c { nqp::list($role, nqp::hash(&#39;$?CLASS&#39;, c&lt;$?CLASS&gt;)) });
+    $role.^compose;
+}</pre>
+<p>Here, I pass the method as an optional parameter, as the function is also used in other places.</p>
+<pre>$ ./perl6
+To exit type &#39;exit&#39; or &#39;^D&#39;
+&gt; my $v = 0 but True;
+0
+
+&gt; $v.perl
+<span style="color:#0000ff;"><strong>0 but True</strong></span></pre>
+<p>Alternatively, we could make a multi-method. I will ask what Perl 6 people think in the IRC channel and let you know. Update: I <a href="http://colabti.org/irclogger/irclogger_log/perl6?date=2018-02-08">asked</a> and I won’t fix that 😀</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-494" href="https://perl6.online/2018/02/07/49-dumping-0-but-true-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-494" href="https://perl6.online/2018/02/07/49-dumping-0-but-true-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-494" href="https://perl6.online/2018/02/07/49-dumping-0-but-true-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-494-5afe9d6d3eb50" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=494&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-494-5afe9d6d3eb50" id="like-post-wrapper-139853928-494-5afe9d6d3eb50"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

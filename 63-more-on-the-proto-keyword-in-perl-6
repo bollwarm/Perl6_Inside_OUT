@@ -1,0 +1,53 @@
+
+		<p>Before digging into the details of the <a href="https://perl6.online/2018/02/20/62-the-eval-routine-in-perl-6-part-1/"><tt>EVAL</tt> routine</a>, we have to reveal some more information <a href="https://perl6.online/2017/12/21/the-proto-keyword/">about <tt>proto</tt>s</a> and multiple dispatch. Examine the following program:</p>
+<pre><span style="color:#0000ff;">proto</span> sub f($x) {
+    say &quot;proto f($x)&quot;;
+}
+
+<span style="color:#0000ff;">multi</span> sub f($x) {
+    say &quot;f($x)&quot;
+}
+
+<span style="color:#0000ff;">multi</span> sub f(Int $x) {
+    say &quot;f(Int $x)&quot;
+}
+
+<span style="color:#0000ff;">multi</span> sub f(Str $x) {
+    say &quot;f(Str $x)&quot;
+}
+
+f(2);
+f(&#39;2&#39;);
+f(3);
+f(&#39;3&#39;);</pre>
+<p>Here, there are three multi-candidates of the function plus a function declared with the <tt>proto</tt> keyword. Earlier, we only saw such proto-functions with empty body, such as:</p>
+<pre>proto sub f($x) {*}</pre>
+<p>But this is not a necessity. The function can carry a regular load, as we see in the example:</p>
+<pre>proto sub f($x) {
+    say &quot;proto f($x)&quot;;
+}</pre>
+<p>Run the program:</p>
+<pre>proto f(2)
+proto f(2)
+proto f(3)
+proto f(3)</pre>
+<p>All the calls were caught by the proto-candidate. Now, update it and return the <tt>{*}</tt> block for some dedicated values;</p>
+<pre>proto sub f($x) {
+   <span style="color:#0000ff;"> if $x.Str eq &#39;3&#39; {
+        return {*}
+    }</span>
+    say &quot;proto f($x)&quot;;
+}</pre>
+<p>The <tt>if</tt> check triggers its block for the last two function calls:</p>
+<pre>f(3);
+f(&#39;3&#39;);</pre>
+<p>In these cases, the proto-function returns <tt>{*}</tt>, which makes Perl 6 trying other candidates. As we have enough candidates for both integer and string arguments, the compiler can easily choose one of them:</p>
+<pre>proto f(2)
+proto f(2)
+f(Int 3)
+f(Str 3)</pre>
+<div></div>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-556" href="https://perl6.online/2018/02/21/63-more-on-the-proto-keyword-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-556" href="https://perl6.online/2018/02/21/63-more-on-the-proto-keyword-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-556" href="https://perl6.online/2018/02/21/63-more-on-the-proto-keyword-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-556-5afe9d51c10cc" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=556&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-556-5afe9d51c10cc" id="like-post-wrapper-139853928-556-5afe9d51c10cc"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

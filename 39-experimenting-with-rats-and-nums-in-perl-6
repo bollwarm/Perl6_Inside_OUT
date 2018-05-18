@@ -1,0 +1,111 @@
+
+		<p>Today, it will be a post with some small things about the two data types, Rat and Num.</p>
+<p>First of all, Zoffix Znet added some insights on Twitter regarding my previous posts. Let me just quote them here.</p>
+<p>Some useful information about <a href="https://perl6.online/2018/01/27/38-to-divide-or-not-to-divide/"><tt>DIVIDE_NUMBERS</tt> and <tt>DON&#39;T_DIVIDE_NUMBERS</tt></a>:</p>
+<p style="padding-left:30px;"><em><a href="https://twitter.com/zoffix/status/957413166631317505">FWIW</a>, these will be gone some time these year, together with .REDUCE-ME method. Rats are meant to be immutable, so once we get native uint64s straightened out, to counteract perf loss from removal of DON’T_DIVIDE optimization, all of these ops will just be making new Rationals.</em></p>
+<p>And about <a href="https://perl6.online/2018/01/26/37-dividing-by-zero-in-perl-6/">dividing by zero</a>:</p>
+<p style="padding-left:30px;"><em><a href="https://twitter.com/zoffix/status/957413711018328064">You can</a> divide by zero *and* announce it to others, as long as you use the Num view of Rationals, which uses IEEE 754-2008 semantics with regards to division by zero<br>
+&lt;Zoffix&gt; m: .Num.say for 1/0, -1/0, 0/0<br>
+&lt;camelia&gt; rakudo-moar a9a9e1c97: OUTPUT: «Inf␤-Inf␤NaN␤»</em></p>
+<p>Let us play with dividing by 0 a bit more.</p>
+<p>So, indeed, you can get <tt>Inf</tt> if you cast a Rat value to Num:</p>
+<pre>$ perl6 -e&#39;say (1/0).Num&#39;
+Inf</pre>
+<p>By the way, don’t forget that some spaces are meaningful in Perl 6. The following two lines of code are different:</p>
+<pre>say (1/0).Num;
+say(1/0).Num;</pre>
+<p>The first line prints <tt>Inf</tt>, while the second throws an exception. This is because the first line is equivalent to:</p>
+<pre>say((1/0).Num);</pre>
+<p>While the second line tries to convert the result of calling <tt>say</tt> to Num.</p>
+<p>Let us trace the data types in the following program:</p>
+<pre>my $x = 1/0;
+say $x.WHAT; <strong><em># (Rat)</em></strong>
+
+# say $x; # Error
+
+my $y = $x.Num;
+say $y.WHAT; <strong><em># (Num)</em></strong>
+
+say $y;     <em> # Inf</em></pre>
+<p>Is it possible that Rats also return <tt>Inf</tt> after division by zero?</p>
+<p>First of all, here is the method of the Rational role that is used to convert a Rat number to a Num value:</p>
+<pre>method Num() {
+    nqp::p6box_n(nqp::div_In(
+       nqp::decont($!numerator),
+       nqp::decont($!denominator)))
+}</pre>
+<p>The rest of the work is thus done by some NQP code, which in the end gives us <tt>Inf</tt>.</p>
+<p>Let us start with a simple thing first and print <tt>Inf</tt> when the value is stringified. Replace the <tt>Str</tt> method of the Rational role with the following:</p>
+<pre>multi method Str(::?CLASS:D:) {
+    unless $!denominator {
+        return &#39;NaN&#39; unless $!numerator;
+        return &#39;Inf&#39; if $!numerator &gt;= 0;
+        return &#39;-Inf&#39;;
+    }
+}</pre>
+<p>This should only solve the problem in the cases when a ‘broken’ number is used as a string, for example:</p>
+<pre>my $x = 1/0;
+say $x; <em># Inf</em>
+
+my $y = -1/0;
+say $y; <em># -Inf</em>
+
+my $z = 0/0;
+say $z; <em># NaN</em></pre>
+<p>Surprisingly, it gave us even more, and we can use such numbers in calculations:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1/0; my $y = 1 + $x; say $y&#39;
+Inf</pre>
+<p>Now, look at the original <tt>Str</tt> method:</p>
+<pre>multi method Str(::?CLASS:D:) {
+<strong>    my $whole = self.abs.floor;</strong>
+<strong>    my $fract = self.abs - $whole;</strong>
+
+    # fight floating point noise issues RT#126016
+    if $fract.Num == 1e0 { ++$whole; $fract = 0 }
+
+    my $result = nqp::if(
+        nqp::islt_I($!numerator, 0), &#39;-&#39;, &#39;&#39;
+    ) ~ $whole;
+
+    if $fract {
+        my $precision = $!denominator &lt; 100_000
+        ?? 6 !! $!denominator.Str.chars + 1;
+
+        my $fract-result = &#39;&#39;;
+        while $fract and $fract-result.chars &lt; $precision {
+            $fract *= 10;
+            given $fract.floor {
+                $fract-result ~= $_;
+                $fract -= $_;
+            }
+        }
+        ++$fract-result if 2*$fract &gt;= 1; # round off fractional result
+
+        $result ~= &#39;.&#39; ~ $fract-result;
+    }
+    $result
+}</pre>
+<p>If you debug the code, you will soon discover that the exception happens in the first lines, when the <tt>abs</tt> method is called on a number.</p>
+<p>This method is defined in the Real role:</p>
+<pre>method abs() { self &lt; 0 ?? -self !! self }</pre>
+<p>Let us redefine it for Rationals (ignore negative values for now):</p>
+<pre>method abs() {
+    if $!denominator == 0 {
+        Inf
+    }
+    else {
+        $!numerator / $!denominator
+    }
+}</pre>
+<p>Now, the check happens in this method. Let’s try it:</p>
+<pre>$ ./perl6 -e&#39;my $x = 1/2; say $x;&#39;
+0.5
+
+$ ./perl6 -e&#39;my $x = 1/0; say $x;&#39;
+<strong>Inf.NaNNaN</strong></pre>
+<p>Almost what is needed. You may fix the output as an exercise or just run <tt>git checkout src</tt> 🙂</p>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-433" href="https://perl6.online/2018/01/28/39-experimenting-with-rats-and-nums-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-433" href="https://perl6.online/2018/01/28/39-experimenting-with-rats-and-nums-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-433" href="https://perl6.online/2018/01/28/39-experimenting-with-rats-and-nums-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-433-5afe9d797e513" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=433&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-433-5afe9d797e513" id="like-post-wrapper-139853928-433-5afe9d797e513"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

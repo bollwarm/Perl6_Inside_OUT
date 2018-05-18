@@ -1,0 +1,48 @@
+
+		<p>Today, we continue <a href="https://perl6.online/2018/02/08/50-colonpair-in-perl-6s-grammar-part-1/">examining the <tt>colonpair</tt> syntax</a> in Perl 6 and will give an addition to the third branch of the token. Here’s the branch we are looking at today:</p>
+<pre><span style="color:#999999;">#  branch 3</span>
+| &lt;identifier&gt;
+    { $*key := $&lt;identifier&gt;.Str; }
+    [
+    || &lt;.unsp&gt;? :dba(&#39;pair value&#39;) &lt;coloncircumfix($*key)&gt; { $*value := $&lt;coloncircumfix&gt;; }
+    || { $*value := 1; }
+    ]
+</pre>
+<p>It contains two alternative paths. If you don’t specify the value, it is set to 1:</p>
+<pre>sub h(:$value) {
+    say $value;
+}
+
+h(:value); <em># True</em></pre>
+<p>This is handled by the second alternative in this branch:</p>
+<pre>|| { $*value := 1; }</pre>
+<p>But you also may match the first one:</p>
+<pre>|| &lt;.unsp&gt;? :dba(&#39;pair value&#39;) &lt;coloncircumfix($*key)&gt; {
+    $*value := $&lt;coloncircumfix&gt;;
+}</pre>
+<p>(The <tt>unsp</tt> is the so-called <em>unspace</em> — an optional space prefixed by the backslash if you want to have some whitespace before the parenthesesis.)</p>
+<p>The <tt>coloncircumfix</tt> token basically allows us to use paired brackets (actually, those defined by <tt>circumfix</tt>) to enclose the value. This is how it is defined:</p>
+<pre>token coloncircumfix($front) {
+    # reset $*IN_DECL in case this colonpair is part of var we&#39;re
+    # declaring, since colonpair might have other vars. Don&#39;t make those
+    # think we&#39;re declaring them
+    :my $*IN_DECL := &#39;&#39;;
+    [
+    | &#39;&lt;&gt;&#39; &lt;.worry(&quot;Pair with &lt;&gt; really means an empty list, not null string; use :$front&quot; ~ &quot;(&#39;&#39;) to represent the null string,\n or :$front&quot; ~ &quot;() to represent the empty list more accurately&quot;)&gt;
+    | {} &lt;circumfix&gt;
+    ]
+}</pre>
+<p>The following code is using this option:</p>
+<pre>h(:value&lt;10&gt;); <em># 10</em>
+h(:value(11)); <em># 11</em>
+h(:value[12]); <em># 12</em></pre>
+<p>You can’t pass an empty string using empty brackets like <tt>h(:value&lt;&gt;)</tt>:</p>
+<pre class="p1">Potential difficulties:
+  Pair with &lt;&gt; really means an empty list, not null string;
+  use :value(&#39;&#39;) to represent the null string,
+  or :value() to represent the empty list more accurately</pre>
+<p> </p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-507" href="https://perl6.online/2018/02/09/51-colonpair-in-perl-6s-grammar-part-2/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-507" href="https://perl6.online/2018/02/09/51-colonpair-in-perl-6s-grammar-part-2/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-507" href="https://perl6.online/2018/02/09/51-colonpair-in-perl-6s-grammar-part-2/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-507-5afe9d69a1276" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=507&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-507-5afe9d69a1276" id="like-post-wrapper-139853928-507-5afe9d69a1276"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	

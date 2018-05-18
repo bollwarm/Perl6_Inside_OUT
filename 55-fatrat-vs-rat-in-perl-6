@@ -1,0 +1,233 @@
+
+		<p>Yesterday, Solomon Foster <a href="https://www.facebook.com/groups/perl6/permalink/2044834289116253/">posted an example</a> in the Perl 6 group on Facebook:</p>
+<pre>my @x = 
+    FatRat.new(1, 1), 
+    -&gt; $x { $x - ($x ** 2 - $N) / (2 * $x) } ... *</pre>
+<p>This code implements Newton’s method of finding an approximate value of a square root of <tt>$N</tt>. The important thing is that it is using a FatRat value for higher accuracy.</p>
+<p>Let us run it for the value of 9:</p>
+<pre>my $N = 9;
+
+my @x = 
+    Rat.new(1, 1), 
+    -&gt; $x { $x - ($x ** 2 - $N) / (2 * $x) } ... *;
+
+.say for @x[0..7];</pre>
+<p>Very soon, it converges to the correct value:</p>
+<pre>1
+5
+3.4
+3.023529
+3.000092
+3.00000000140
+3.00000000000000000033
+3.0000000000000000000000000000000000000176</pre>
+<p>If you narrow the data type down to Rat, then, after a certain point, it will not be wide enough to keep all the decimal digits:</p>
+<pre>1
+5
+3.4
+3.023529
+3.000092
+3.00000000140
+3.00000000000000000033
+3</pre>
+<p>Of course, the absolutely correct result is achieved faster but we understand that that is due to the lack of Rat’s capacity in comparison to FatRat, and it won’t work for non-integer results, probably. Let us try it with <tt>$N = 5</tt> and with ten iterations:</p>
+<p>With Rat:</p>
+<pre>1
+3
+2.333333
+2.238095
+2.236069
+2.23606798
+2.236067977499790
+2.23606797749979
+2.23606797749979
+2.23606797749979
+2.23606797749979</pre>
+<p>With FatRat:</p>
+<pre>1
+3
+2.333333
+2.238095
+2.236069
+2.23606798
+2.236067977499790
+2.2360679774997896964091736687
+2.2360679774997896964091736687312762354406183596115257243
+2.236067977499789696409173668731276235440618359611525724270897245410520925637804899414414408378782274969508176
+2.23606797749978969640917366873127623544061835961152572427089724541052092563780489941441440837878227496950817615077378350425326772444707386358636012153345270886677817319187916581127664532263985658053576135041753378500</pre>
+<p>(I hope your browser just scrolls the code block instead of wrapping the text to the new lines.)</p>
+<p>OK, we see that FatRat gives more digits. Now look at the definition of the classes in src/core/Rat.pm:</p>
+<pre># XXX: should be Rational[Int, uint]
+my class Rat is Cool does Rational[Int, Int] { . . . }
+
+my class FatRat is Cool does Rational[Int, Int] { . . . }</pre>
+<p>Both classes implement a <a href="https://perl6.online/2018/01/06/parameterised-roles-in-perl-6/">parameterised</a> Rational role. In both cases, the parameters are the same — both the numerator and the denominator are supposed to be Int values. So, why do the results of the Newton’s approximation were so different if we use the same data type to represent the fraction? Let us try figuring that out.</p>
+<p>Just to see how the parts of the fraction are constructed in the role, here’re their declarations:</p>
+<pre>my role Rational[::NuT = Int, ::DeT = ::(&quot;NuT&quot;)] does Real {
+    has NuT $.numerator = 0;
+    has DeT $.denominator = 1;</pre>
+<p>So, in both cases, we have the following attributes:</p>
+<pre>has Int $.numerator = 0;
+has Int $.denominator = 1;</pre>
+<p>Let’s check if the types are not changed somewhere inside the black box:</p>
+<pre>my $N = 5;
+my @x = FatRat.new(1, 1), -&gt; $x { $x - ($x ** 2 - $N) / (2 * $x) } ... *;
+
+my $v = @x[7];
+say $v.numerator.WHAT;
+say $v.denominator.WHAT;</pre>
+<p>With the FatRat type, the program confirms Ints:</p>
+<pre>$ perl6 sqr-fatrat.pl 
+(Int)
+(Int)</pre>
+<p>Now try the Rat type:</p>
+<pre>$ perl6 sqr-fatrat.pl 
+No such method &#39;numerator&#39; for invocant of type &#39;Num&#39;.
+Did you mean &#39;iterator&#39;?
+  in block &lt;unit&gt; at sqr-fatrat.pl line 10</pre>
+<p>What?! What do you mean? Does it mean that the values are not Rats anymore? Let’s check it and print the types of the data elements. We know that we started the sequence with a Rat value:</p>
+<pre><strong>Rat.new(1, 1)</strong>, -&gt; $x { $x - ($x ** 2 - $N) / (2 * $x) } ... *;</pre>
+<p>The pointy block is a generator of the next elements, so nothing bad here. Nevertheless, let’s call <tt>.WHAT</tt> on each element:</p>
+<pre>.WHAT.say for @x[0..10];</pre>
+<p>Here is the output:</p>
+<pre>(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Num)
+(Num)
+(Num)
+(Num)</pre>
+<p>The first seven items were Rats, while the rest became Nums! That explains why we saw different results, of course. But why was the data type changed?</p>
+<p>Try it slowly. First, see the type of the value immediately after it is generated:</p>
+<pre>my $N = 5;
+my @x = 
+    Rat.new(1, 1), 
+    -&gt; $x {
+        my $n = $x - ($x ** 2 - $N) / (2 * $x);
+        <span style="color:#0000ff;"><strong>say $n.WHAT;</strong></span>
+        $n;
+    } ... *;</pre>
+<p>It prints the same list of types as before.</p>
+<p>The second step is to try to force the data type everywhere we can:</p>
+<pre>my <span style="color:#0000ff;"><strong>Rat</strong></span> $N = <span style="color:#0000ff;"><strong>Rat</strong></span>.new(5);
+my <span style="color:#0000ff;"><strong>Rat</strong></span> @x = 
+    <span style="color:#0000ff;"><strong>Rat</strong></span>.new(1, 1), 
+    -&gt; <span style="color:#0000ff;"><strong>Rat</strong></span> $x {
+        my <span style="color:#0000ff;"><strong>Rat</strong></span> $n = $x - ($x ** 2 - $N) / (2 * $x);
+        say $n.WHAT;
+        $n;
+ } ... *;</pre>
+<p>Run the program and see what it says:</p>
+<pre>(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+(Rat)
+Type check failed in assignment to $n;
+<strong><span style="color:#0000ff;">expected Rat but got Num</span></strong> (2.23606797749979e0)
+   in block &lt;unit&gt; at sqr-fatrat.pl line 5</pre>
+<p>It became even worse 🙂 If you force FatRat, then everything stays fine. OK, now it is really time to understand when the border is crossed and the data type is changed.</p>
+<p>Let us visualise it a bit more so that we see the numerator and the denominator of the generated number, as well as the type of the intermediate value that is used to calculate it:</p>
+<pre>-&gt; Rat $x {
+    my $d = ($x ** 2 - $N);
+    say $d;
+    say $d.WHAT;
+ 
+    my Rat $n = $x - $d / (2 * $x);
+    say $n.WHAT;
+    say $n.nude;
+    $n;
+} ... *;</pre>
+<p>This gives us the way to confirm that it breaks:</p>
+<pre>-4
+(Rat)
+(Rat)
+(3 1)
+4
+(Rat)
+(Rat)
+(7 3)
+0.444444
+(Rat)
+(Rat)
+(47 21)
+0.009070
+(Rat)
+(Rat)
+(2207 987)
+0.0000041
+(Rat)
+(Rat)
+(4870847 2178309)
+<strong>0.00000000000084</strong>
+(Rat)
+(Rat)
+<strong><span style="color:#0000ff;">(23725150497407 10610209857723)</span></strong>
+<strong><span style="color:#0000ff;">0</span></strong>
+<strong><span style="color:#0000ff;">(Num)</span></strong>
+Type check failed in assignment to $n; expected Rat but got Num (2.23606797749979e0)
+ in block &lt;unit&gt; at /Users/ash/Books/perl6.ru/sqr-fatrat.pl line 9</pre>
+<p>As you see, just before the exception, the parts of the fraction became quite big, and the type of the subexpression turned from Rat to Num. At that moment, the value of <tt>$d</tt> gets close to zero (this value is the error between the correct answer and the approximated value on the previous iteration).</p>
+<p>Seems like we are close to the final destination. Once again, look at the changes of the <tt>$d</tt> variable:</p>
+<pre>say $d.perl ~ &#39; = &#39; ~ $d;</pre>
+<p>During the first few iterations, it goes to exact zero:</p>
+<pre>-4.0 = -4
+4.0 = 4
+&lt;4/9&gt; = 0.444444
+&lt;4/441&gt; = 0.009070
+&lt;4/974169&gt; = 0.0000041
+&lt;4/4745030099481&gt; = 0.00000000000084
+0e0 = 0</pre>
+<p>This is not happening when FatRat values are used:</p>
+<pre>FatRat.new(-4, 1) = -4
+FatRat.new(4, 1) = 4
+FatRat.new(4, 9) = 0.444444
+FatRat.new(4, 441) = 0.009070
+FatRat.new(4, 974169) = 0.0000041
+FatRat.new(4, 4745030099481) = 0.00000000000084
+FatRat.new(4, 112576553224922323902744729) = 0.0000000000000000000000000355
+. . .</pre>
+<p>We now get to the <tt>**</tt> operation for Rats (remember that <tt>$d = ($x ** 2 - $N)</tt>?):</p>
+<pre>multi sub infix:&lt;**&gt;(Rational:D \a, Int:D \b) {
+    <strong>b &gt;= 0
+        ?? DIVIDE_NUMBERS
+           (a.numerator ** b // fail (a.numerator.abs &gt; a.denominator ?? X::Numeric::Overflow !! X::Numeric::Underflow).new),
+           a.denominator ** b, # we presume it likely already blew up on the numerator
+           a,
+           b</strong>
+       !! DIVIDE_NUMBERS
+           (a.denominator ** -b // fail (a.numerator.abs &lt; a.denominator ?? X::Numeric::Overflow !! X::Numeric::Underflow).new),
+           a.numerator ** -b,
+           a,
+           b
+}</pre>
+<p>In our case, <tt>b</tt> is always non-negative, and we go to <a href="https://perl6.online/2018/01/27/38-to-divide-or-not-to-divide/">our old friend</a>, <tt>DIVIDE_NUMBERS</tt>.</p>
+<pre>sub DIVIDE_NUMBERS(Int:D \nu, Int:D \de, \t1, \t2) {
+    . . .
+    nqp::if(
+        <strong>$denominator &lt; UINT64_UPPER</strong>,
+        nqp::p6bindattrinvres(
+        nqp::p6bindattrinvres(nqp::create(Rat),Rat,&#39;$!numerator&#39;,$numerator),
+        Rat,&#39;$!denominator&#39;,$denominator),
+        <span style="color:#0000ff;"><strong>nqp::p6box_n</strong></span>(nqp::div_In($numerator, $denominator)))))
+}</pre>
+<p>Yes! Finally, you can see that if the denominator is not big enough, a Rat number is returned. Otherwise, the <tt>nqp::p6box_n</tt> function creates a Num value. For a FatRat, there is a different branch that does not do the check:</p>
+<pre>nqp::if(
+nqp::istype(t1, FatRat) || nqp::istype(t2, FatRat),
+nqp::p6bindattrinvres(
+    nqp::p6bindattrinvres(nqp::create(FatRat),FatRat,&#39;$!numerator&#39;,$numerator),
+    FatRat,&#39;$!denominator&#39;,$denominator),</pre>
+<p>The function is a Perl 6 extension to NQP, there’s a documentation line in docs/ops.markdown:</p>
+<pre class="p1"><span class="s1">## </span><span class="s2">p6box_n
+</span>* p6box_n(num $value)
+Box a native num into a Perl 6 Num.</pre>
+<p>Congratulations, we’ve tracked that down!</p>
+<div class="sharedaddy sd-like-enabled sd-sharing-enabled" id="jp-post-flair"><div class="sharedaddy sd-sharing-enabled"><div class="robots-nocontent sd-block sd-social sd-social-icon-text sd-sharing"><h3 class="sd-title">Share this:</h3><div class="sd-content"><ul><li class="share-twitter"><a class="share-twitter sd-button share-icon" data-shared="sharing-twitter-524" href="https://perl6.online/2018/02/13/55-fatrat-vs-rat-in-perl-6/?share=twitter" rel="nofollow" target="_blank" title="Click to share on Twitter"><span>Twitter</span></a></li><li class="share-facebook"><a class="share-facebook sd-button share-icon" data-shared="sharing-facebook-524" href="https://perl6.online/2018/02/13/55-fatrat-vs-rat-in-perl-6/?share=facebook" rel="nofollow" target="_blank" title="Click to share on Facebook"><span>Facebook</span></a></li><li class="share-google-plus-1"><a class="share-google-plus-1 sd-button share-icon" data-shared="sharing-google-524" href="https://perl6.online/2018/02/13/55-fatrat-vs-rat-in-perl-6/?share=google-plus-1" rel="nofollow" target="_blank" title="Click to share on Google+"><span>Google</span></a></li><li class="share-end"></li></ul></div></div></div><div class="sharedaddy sd-block sd-like jetpack-likes-widget-wrapper jetpack-likes-widget-unloaded" data-name="like-post-frame-139853928-524-5afe9d5e06754" data-src="//widgets.wp.com/likes/index.html?ver=20180319#blog_id=139853928&amp;post_id=524&amp;origin=inperl6.wordpress.com&amp;obj_id=139853928-524-5afe9d5e06754" id="like-post-wrapper-139853928-524-5afe9d5e06754"><h3 class="sd-title">Like this:</h3><div class="likes-widget-placeholder post-likes-widget-placeholder" style="height: 55px;"><span class="button"><span>Like</span></span> <span class="loading">Loading...</span></div><span class="sd-text-color"></span><a class="sd-link-color"></a></div>
+<div class="jp-relatedposts" id="jp-relatedposts">
+	<h3 class="jp-relatedposts-headline"><em>Related</em></h3>
+</div></div>	
