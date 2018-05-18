@@ -2,7 +2,7 @@ use HTML::WikiConverter;
 
 opendir(DIR,'.');
 while(readdir DIR){
-next if /\.pl/;
+next if /\.pl|\.|\.\.|\.md/;
 trans($_);
 }
 closedir(DIR);

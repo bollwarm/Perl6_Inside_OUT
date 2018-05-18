@@ -1,0 +1,68 @@
+In Perl 6, you can say 0 but True, and change the result of coercing zero to a Boolean value. (Notice that this is not a string but a valid language construct.)
+
+my $v = 0 but True;
+say $v;  # 0
+say ?$v; # True
+
+Let us see how that works in Rakudo.
+
+First of all, you can soon discover that there are a few multi-variants for the infix but operator (all defined in src/core/operators.pm):
+
+proto sub infix:<but>(|) is pure {*}
+multi sub infix:<but>(Mu:D \obj, Mu:U \rolish) 
+multi sub infix:<but>(Mu:D \obj, Mu:U \rolish, :$value! is raw) 
+multi sub infix:<but>(Mu:U \obj, Mu:U \rolish) 
+multi sub infix:<but>(Mu \obj, Mu:D $val) is raw 
+multi sub infix:<but>(Mu:D \obj, **@roles) 
+multi sub infix:<but>(Mu:U \obj, **@roles)
+
+For our given example, the most suitable candidate seems to be (and it is) the one taking a defined value:
+
+multi sub infix:<but>(Mu \obj, Mu:D $val) is raw {
+    obj.clone.^mixin(GENERATE-ROLE-FROM-VALUE($val));
+}
+
+The routine immediately delegates to GENERATE-ROLE-FROM-VALUE:
+
+sub GENERATE-ROLE-FROM-VALUE($val) {
+    my $role := Metamodel::ParametricRoleHOW.new_type();
+    my $meth := method () { $val };
+    $meth.set_name($val.^name);
+    $role.^add_method($meth.name, $meth);
+    $role.^set_body_block(
+        -> |c { nqp::list($role, nqp::hash('$?CLASS', c<$?CLASS>)) });
+    $role.^compose;
+}
+
+Let us read it line by line as far as we can. The function is using Metamodel (src/Perl6/Metamodel/*), which is a separate big story in Perl 6 that describes the behaviour of how Perl deals with storing and manipulating objects, their attributes and methods.
+
+So, what happens here. First, the two items are created: an instance of the ParametricRoleHOW role and a method object that returns the given value (which is True in our initial example).
+
+Then, the method is given a name (which is Bool in our case, as the ^name method returns this class for True), and the method is added to the role referenced by the same name (Bool).
+
+Finally, an executable code block is set and the role is composed, whatever that means; maybe we should return to metamodels in the future. Just out of curiosity, here’s the method from src/Perl6/Metamodel/ParametricRoleHOW.nqp:
+
+method compose($obj, :$compiler_services) {
+    my @rtl;
+    if $!in_group {
+        @rtl.push($!group);
+    }
+    for self.roles_to_compose($obj) {
+        @rtl.push($_);
+        for $_.HOW.role_typecheck_list($_) {
+            @rtl.push($_);
+        }
+    }
+    @!role_typecheck_list := @rtl;
+    $!composed := 1;
+    $obj
+}
+
+Back to our new object $v that was created with the simple code:
+
+my $v = 0 but True;
+
+This object is now equipped with the Bool method. Of course, you could call Bool directly on 0, but in that case it would be a method of the Int class. By appending the but True clause, we added the method to the object itself. This method returns True, as it was the $val argument for the call of GENERATE-ROLE-FROM-VALUE.
+
+say 0.Bool;  # 0
+say $v.Bool; # True
