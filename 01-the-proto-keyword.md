@@ -27,7 +27,7 @@ multi sub f($a, $b) {
     return $a + $b;
 }
 
-say f(1, 2); _# 3
+say f(1, 2); # 3
 _
 
 ```
