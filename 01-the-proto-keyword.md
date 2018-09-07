@@ -1,5 +1,5 @@
 
-# proto关键字
+# 🦋101 proto关键字
 
 今天，我们来专门讲下`proto`关键字。它为编译器提供了创建`multi-subs`的意图指示。
 
@@ -16,8 +16,8 @@ multi sub f(Str $x) {
     return $x.flip;
 }
 
-say f(42);      _# -42_
-say f('Hello'); _# olleH_
+say f(42);      # -4
+say f('Hello'); # olleH
 
 ```
 如果要改成带两个参数的函数变体，该怎么做？
