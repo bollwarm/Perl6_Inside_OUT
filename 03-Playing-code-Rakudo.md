@@ -1,4 +1,4 @@
-#  3.玩转Rakudo Perl 6的代码
+#🔬 3.玩转Rakudo Perl 6的代码
 
 昨天，我们介绍了返回字符串的Bool类的两个方法。函数生成的字符串表示形式在源代码中硬编码指定了。
 今天我们来就用他来研究并且试着修改这些显示文本。
@@ -29,7 +29,7 @@ $ make
 
 ## 修改Perl 6默认行为 
 
-现在，打开src/core/Bool.pm文件并更改gist方法的字符串以便支持使用Unicode thumb而不是纯文本：
+现在，打开`src/core/Bool.pm`文件并更改.gist方法的字符串以便支持使用`Unicode thumb`而不是纯文本：
 ```
 Bool.^add_multi_method('gist', my multi method gist(Bool:D:) {
     self ?? ' ' !! ' '
